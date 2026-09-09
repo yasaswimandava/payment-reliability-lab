@@ -7,11 +7,31 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.yasaswimandava.paymentlab.application.CreatePaymentCommand;
+import com.yasaswimandava.paymentlab.application.CreatePaymentResult;
+import com.yasaswimandava.paymentlab.application.PaymentOperations;
+import com.yasaswimandava.paymentlab.domain.Payment;
+import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import java.math.BigDecimal;
+import java.util.Currency;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,6 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
+@Import(PaymentApiIntegrationTest.ConcurrencyTestConfiguration.class)
 class PaymentApiIntegrationTest {
 
     private static final String PAYMENTS_URL = "/api/v1/payments";
@@ -39,6 +60,9 @@ class PaymentApiIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PaymentOperations paymentOperations;
 
     @Test
     void createsAPaymentAndReplaysAnIdenticalRequest() throws Exception {
@@ -157,6 +181,40 @@ class PaymentApiIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(idempotencyCount).isEqualTo(1);
     }
 
+    @Test
+    void concurrentIdenticalRequestsHaveExactlyOneBusinessEffect() throws Exception {
+        String merchantId = "merchant-concurrency-test";
+        String idempotencyKey = "concurrent-order-1";
+        CreatePaymentCommand command = new CreatePaymentCommand(
+                merchantId,
+                new BigDecimal("250.00"),
+                Currency.getInstance("USD"));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<CreatePaymentResult>> futures = List.of(
+                    executor.submit(() -> paymentOperations.create(idempotencyKey, command)),
+                    executor.submit(() -> paymentOperations.create(idempotencyKey, command)));
+
+            CreatePaymentResult first = futures.get(0).get(10, TimeUnit.SECONDS);
+            CreatePaymentResult second = futures.get(1).get(10, TimeUnit.SECONDS);
+            long storedPayments = jdbcTemplate.queryForObject(
+                    "select count(*) from payments where merchant_id = ?",
+                    Long.class,
+                    merchantId);
+
+            org.assertj.core.api.Assertions.assertThat(
+                            List.of(first.payment().id(), second.payment().id()))
+                    .containsOnly(first.payment().id());
+            org.assertj.core.api.Assertions.assertThat(
+                            List.of(first.replayed(), second.replayed()))
+                    .containsExactlyInAnyOrder(false, true);
+            org.assertj.core.api.Assertions.assertThat(storedPayments).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private String paymentJson(String amount) {
         return """
                 {
@@ -164,5 +222,49 @@ class PaymentApiIntegrationTest {
                   "currency": "USD"
                 }
                 """.formatted(amount);
+    }
+
+    @TestConfiguration
+    static class ConcurrencyTestConfiguration {
+
+        @Bean
+        @Primary
+        PaymentRepository barrierPaymentRepository(
+                @Qualifier("paymentRepository") PaymentRepository delegate) {
+            return new BarrierPaymentRepository(delegate);
+        }
+    }
+
+    private static final class BarrierPaymentRepository implements PaymentRepository {
+
+        private static final String CONCURRENT_MERCHANT = "merchant-concurrency-test";
+
+        private final PaymentRepository delegate;
+        private final CyclicBarrier saveBarrier = new CyclicBarrier(2);
+
+        private BarrierPaymentRepository(PaymentRepository delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Payment save(Payment payment) {
+            if (CONCURRENT_MERCHANT.equals(payment.merchantId())) {
+                awaitConcurrentSave();
+            }
+            return delegate.save(payment);
+        }
+
+        @Override
+        public Optional<Payment> findById(UUID paymentId) {
+            return delegate.findById(paymentId);
+        }
+
+        private void awaitConcurrentSave() {
+            try {
+                saveBarrier.await(5, TimeUnit.SECONDS);
+            } catch (Exception exception) {
+                throw new IllegalStateException("Concurrent requests did not reach the barrier", exception);
+            }
+        }
     }
 }
