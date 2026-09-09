@@ -1,6 +1,7 @@
 package com.yasaswimandava.paymentlab.api;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -82,6 +83,35 @@ class PaymentApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(paymentJson("0")))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void retrievesAnExistingPayment() throws Exception {
+        MvcResult created = mockMvc.perform(post(PAYMENTS_URL)
+                        .header("X-Merchant-Id", MERCHANT_ID)
+                        .header("Idempotency-Key", "order-to-retrieve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson("84.25")))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String paymentId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        mockMvc.perform(get(PAYMENTS_URL + "/" + paymentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(paymentId))
+                .andExpect(jsonPath("$.amount").value(84.25))
+                .andExpect(jsonPath("$.replayed").value(false));
+    }
+
+    @Test
+    void returnsNotFoundForAnUnknownPayment() throws Exception {
+        String missingPaymentId = "81e13cdc-cceb-47d4-8871-c49cd69aa344";
+
+        mockMvc.perform(get(PAYMENTS_URL + "/" + missingPaymentId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Payment not found"))
+                .andExpect(jsonPath("$.detail").value(
+                        "Payment was not found: " + missingPaymentId));
     }
 
     private String paymentJson(String amount) {

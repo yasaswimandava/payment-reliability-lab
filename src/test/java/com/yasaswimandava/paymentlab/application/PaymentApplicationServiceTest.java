@@ -86,6 +86,24 @@ class PaymentApplicationServiceTest {
                 .hasMessageContaining("positive");
     }
 
+    @Test
+    void retrievesAnExistingPaymentById() {
+        Payment created = service.create(IDEMPOTENCY_KEY, validCommand()).payment();
+
+        Payment found = service.get(created.id());
+
+        assertThat(found).isEqualTo(created);
+    }
+
+    @Test
+    void reportsWhenAPaymentDoesNotExist() {
+        UUID missingPaymentId = UUID.fromString("3d8ef55a-20d3-4c2e-a98e-b3ad1a70fc22");
+
+        assertThatThrownBy(() -> service.get(missingPaymentId))
+                .isInstanceOf(PaymentNotFoundException.class)
+                .hasMessageContaining(missingPaymentId.toString());
+    }
+
     private CreatePaymentCommand validCommand() {
         return new CreatePaymentCommand(
                 MERCHANT_ID,
