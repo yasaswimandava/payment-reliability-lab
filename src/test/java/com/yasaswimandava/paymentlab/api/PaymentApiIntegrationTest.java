@@ -11,20 +11,34 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Testcontainers
 class PaymentApiIntegrationTest {
 
     private static final String PAYMENTS_URL = "/api/v1/payments";
     private static final String MERCHANT_ID = "merchant-api-test";
     private static final String IDEMPOTENCY_KEY = "order-api-123";
 
+    @Container
+    @ServiceConnection
+    private static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:17.11-bookworm");
+
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void createsAPaymentAndReplaysAnIdenticalRequest() throws Exception {
@@ -112,6 +126,35 @@ class PaymentApiIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Payment not found"))
                 .andExpect(jsonPath("$.detail").value(
                         "Payment was not found: " + missingPaymentId));
+    }
+
+    @Test
+    void persistsThePaymentAndItsIdempotencyRecord() throws Exception {
+        String persistenceKey = "order-persistence-test";
+        MvcResult created = mockMvc.perform(post(PAYMENTS_URL)
+                        .header("X-Merchant-Id", MERCHANT_ID)
+                        .header("Idempotency-Key", persistenceKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson("125.75")))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String paymentId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        Integer paymentCount = jdbcTemplate.queryForObject(
+                "select count(*) from payments where id = ?::uuid",
+                Integer.class,
+                paymentId);
+        Integer idempotencyCount = jdbcTemplate.queryForObject(
+                """
+                select count(*) from idempotency_keys
+                where merchant_id = ? and idempotency_key = ?
+                """,
+                Integer.class,
+                MERCHANT_ID,
+                persistenceKey);
+
+        org.assertj.core.api.Assertions.assertThat(paymentCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(idempotencyCount).isEqualTo(1);
     }
 
     private String paymentJson(String amount) {
