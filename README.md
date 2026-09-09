@@ -40,6 +40,20 @@ the API adapter.
 
 - Java 17 or newer
 - Maven 3.9+
+- Docker Desktop
+
+## Start PostgreSQL
+
+Create your ignored local environment file, then start the database:
+
+```bash
+cp .env.example .env
+docker compose up -d postgres
+docker compose ps
+```
+
+The database listens only on `127.0.0.1`, and its data persists in a named Docker
+volume across container restarts.
 
 ## Verify
 
