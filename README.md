@@ -19,6 +19,22 @@ Later milestones add PostgreSQL, Kafka, the transactional outbox pattern, retrie
 timeouts, circuit breakers, a dead-letter queue, OpenTelemetry, load tests, and a
 small React operations console.
 
+## Current architecture
+
+```mermaid
+flowchart LR
+    Client -->|POST + idempotency key| API[Payment REST API]
+    API --> Service[Payment application service]
+    Service --> Payments[(Payment repository port)]
+    Service --> Keys[(Idempotency repository port)]
+    Payments --> Memory[In-memory adapter]
+    Keys --> Memory
+```
+
+The domain and application layers do not depend on Spring or a database. Repository
+ports make the persistence technology replaceable, while HTTP concerns remain in
+the API adapter.
+
 ## Local prerequisites
 
 - Java 17 or newer
@@ -29,3 +45,36 @@ small React operations console.
 ```bash
 mvn verify
 ```
+
+The build fails if line coverage drops below 80%.
+
+## Run the API
+
+```bash
+mvn spring-boot:run
+```
+
+Create a payment:
+
+```bash
+curl -i -X POST http://localhost:8080/api/v1/payments \
+  -H 'Content-Type: application/json' \
+  -H 'X-Merchant-Id: demo-merchant' \
+  -H 'Idempotency-Key: demo-order-1001' \
+  --data '{"amount":42.50,"currency":"USD"}'
+```
+
+Repeat the command without changing the body. The first response is `201 Created`
+with `Idempotency-Replayed: false`; the retry is `200 OK` with
+`Idempotency-Replayed: true` and the same payment ID.
+
+## Current limitation
+
+This first learning slice uses in-memory storage. It proves the API and domain
+contract, but data is lost on restart and simultaneous requests across service
+instances are not yet protected. The next milestone replaces the adapters with a
+PostgreSQL transaction and a unique merchant/idempotency-key constraint.
+
+## Architecture decisions
+
+- [ADR-001: Merchant-scoped idempotency](docs/decisions/ADR-001-merchant-scoped-idempotency.md)
