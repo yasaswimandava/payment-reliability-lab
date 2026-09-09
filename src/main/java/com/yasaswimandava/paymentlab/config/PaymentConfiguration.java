@@ -1,13 +1,18 @@
 package com.yasaswimandava.paymentlab.config;
 
-import com.yasaswimandava.paymentlab.adapter.inmemory.InMemoryIdempotencyRepository;
-import com.yasaswimandava.paymentlab.adapter.inmemory.InMemoryPaymentRepository;
+import com.yasaswimandava.paymentlab.adapter.postgres.PostgresIdempotencyRepository;
+import com.yasaswimandava.paymentlab.adapter.postgres.PostgresPaymentRepository;
+import com.yasaswimandava.paymentlab.adapter.postgres.TransactionalPaymentOperations;
 import com.yasaswimandava.paymentlab.application.PaymentApplicationService;
+import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import com.yasaswimandava.paymentlab.port.IdempotencyRepository;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration
 public class PaymentConfiguration {
@@ -18,13 +23,13 @@ public class PaymentConfiguration {
     }
 
     @Bean
-    PaymentRepository paymentRepository() {
-        return new InMemoryPaymentRepository();
+    PaymentRepository paymentRepository(JdbcTemplate jdbcTemplate) {
+        return new PostgresPaymentRepository(jdbcTemplate);
     }
 
     @Bean
-    IdempotencyRepository idempotencyRepository() {
-        return new InMemoryIdempotencyRepository();
+    IdempotencyRepository idempotencyRepository(JdbcTemplate jdbcTemplate) {
+        return new PostgresIdempotencyRepository(jdbcTemplate);
     }
 
     @Bean
@@ -34,5 +39,12 @@ public class PaymentConfiguration {
             Clock clock) {
         return new PaymentApplicationService(paymentRepository, idempotencyRepository, clock);
     }
-}
 
+    @Bean
+    @Primary
+    PaymentOperations transactionalPaymentOperations(
+            PaymentApplicationService delegate,
+            PlatformTransactionManager transactionManager) {
+        return new TransactionalPaymentOperations(delegate, transactionManager);
+    }
+}

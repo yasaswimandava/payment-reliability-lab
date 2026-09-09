@@ -2,7 +2,7 @@ package com.yasaswimandava.paymentlab.api;
 
 import com.yasaswimandava.paymentlab.application.CreatePaymentCommand;
 import com.yasaswimandava.paymentlab.application.CreatePaymentResult;
-import com.yasaswimandava.paymentlab.application.PaymentApplicationService;
+import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import jakarta.validation.Valid;
 import java.util.Currency;
 import java.util.UUID;
@@ -24,9 +24,9 @@ public class PaymentController {
 
     private static final String REPLAY_HEADER = "Idempotency-Replayed";
 
-    private final PaymentApplicationService paymentService;
+    private final PaymentOperations paymentService;
 
-    public PaymentController(PaymentApplicationService paymentService) {
+    public PaymentController(PaymentOperations paymentService) {
         this.paymentService = paymentService;
     }
 

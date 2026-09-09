@@ -13,7 +13,7 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
-public final class PaymentApplicationService {
+public final class PaymentApplicationService implements PaymentOperations {
 
     private final PaymentRepository paymentRepository;
     private final IdempotencyRepository idempotencyRepository;
@@ -28,6 +28,7 @@ public final class PaymentApplicationService {
         this.clock = Objects.requireNonNull(clock);
     }
 
+    @Override
     public CreatePaymentResult create(
             String idempotencyKey,
             CreatePaymentCommand command) {
@@ -40,6 +41,7 @@ public final class PaymentApplicationService {
                 .orElseGet(() -> createPayment(idempotencyKey, command, fingerprint));
     }
 
+    @Override
     public Payment get(UUID paymentId) {
         Objects.requireNonNull(paymentId, "paymentId must not be null");
         return paymentRepository.findById(paymentId)

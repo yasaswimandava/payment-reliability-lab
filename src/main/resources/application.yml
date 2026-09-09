@@ -1,6 +1,17 @@
 spring:
   application:
     name: payment-reliability-lab
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:55432}/${POSTGRES_DB:payment_lab}}
+    username: ${POSTGRES_USER:payment_lab}
+    password: ${POSTGRES_PASSWORD:payment_lab_local}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+      validation-timeout: 1000
+  flyway:
+    enabled: true
   mvc:
     problemdetails:
       enabled: true
@@ -10,4 +21,3 @@ management:
     web:
       exposure:
         include: health,info,metrics
-
