@@ -6,6 +6,7 @@ import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import com.yasaswimandava.paymentlab.domain.Payment;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -28,8 +29,11 @@ public final class TransactionalPaymentOperations implements PaymentOperations {
     public CreatePaymentResult create(
             String idempotencyKey,
             CreatePaymentCommand command) {
-        return requireResult(writeTransaction.execute(
-                status -> delegate.create(idempotencyKey, command)));
+        try {
+            return createInTransaction(idempotencyKey, command);
+        } catch (DuplicateKeyException concurrentClaim) {
+            return createInTransaction(idempotencyKey, command);
+        }
     }
 
     @Override
@@ -39,5 +43,12 @@ public final class TransactionalPaymentOperations implements PaymentOperations {
 
     private <T> T requireResult(T result) {
         return Objects.requireNonNull(result, "transaction returned no result");
+    }
+
+    private CreatePaymentResult createInTransaction(
+            String idempotencyKey,
+            CreatePaymentCommand command) {
+        return requireResult(writeTransaction.execute(
+                status -> delegate.create(idempotencyKey, command)));
     }
 }
