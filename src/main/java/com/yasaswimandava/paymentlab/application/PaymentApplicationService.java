@@ -40,6 +40,12 @@ public final class PaymentApplicationService {
                 .orElseGet(() -> createPayment(idempotencyKey, command, fingerprint));
     }
 
+    public Payment get(UUID paymentId) {
+        Objects.requireNonNull(paymentId, "paymentId must not be null");
+        return paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException(paymentId));
+    }
+
     private CreatePaymentResult replay(
             IdempotencyRecord record,
             String fingerprint,

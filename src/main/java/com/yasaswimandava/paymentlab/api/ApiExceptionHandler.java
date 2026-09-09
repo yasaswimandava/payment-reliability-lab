@@ -1,6 +1,7 @@
 package com.yasaswimandava.paymentlab.api;
 
 import com.yasaswimandava.paymentlab.application.IdempotencyConflictException;
+import com.yasaswimandava.paymentlab.application.PaymentNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +16,15 @@ public class ApiExceptionHandler {
                 HttpStatus.CONFLICT,
                 exception.getMessage());
         problem.setTitle("Idempotency key conflict");
+        return problem;
+    }
+
+    @ExceptionHandler(PaymentNotFoundException.class)
+    ProblemDetail handlePaymentNotFound(PaymentNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage());
+        problem.setTitle("Payment not found");
         return problem;
     }
 
