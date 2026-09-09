@@ -28,7 +28,7 @@ does not contain confidential payment credentials.
 
 - Network retries are safe for clients that preserve their idempotency key.
 - Accidental key reuse with changed details is visible instead of silently accepted.
-- PostgreSQL must atomically persist the payment and idempotency record.
-- A database uniqueness constraint is required for concurrency across instances.
+- PostgreSQL atomically persists the payment and idempotency record.
+- A composite primary key enforces uniqueness across instances.
 - Future request fields that affect the business operation must be added to the
   canonical fingerprint.

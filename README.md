@@ -8,15 +8,19 @@ accept retries safely, process events reliably, and remain observable under fail
 The transport may deliver a message more than once, but the business operation must
 have exactly one effect.
 
-## First milestone
+## Implemented capabilities
 
 - Create a payment through a Spring Boot API.
 - Retrieve a payment by its ID.
 - Require a merchant-scoped idempotency key.
 - Replay the original result for an identical retry.
 - Reject reuse of the same key with different payment details.
+- Persist payments and idempotency records atomically in PostgreSQL.
+- Resolve simultaneous identical requests to exactly one stored payment.
+- Apply versioned database migrations with Flyway.
+- Verify persistence and concurrency against real PostgreSQL with Testcontainers.
 
-Later milestones add PostgreSQL, Kafka, the transactional outbox pattern, retries,
+Later milestones add Kafka, the transactional outbox pattern, provider retries,
 timeouts, circuit breakers, a dead-letter queue, OpenTelemetry, load tests, and a
 small React operations console.
 
@@ -26,15 +30,16 @@ small React operations console.
 flowchart LR
     Client -->|POST + idempotency key| API[Payment REST API]
     API --> Service[Payment application service]
-    Service --> Payments[(Payment repository port)]
-    Service --> Keys[(Idempotency repository port)]
-    Payments --> Memory[In-memory adapter]
-    Keys --> Memory
+    Service --> TX[Transaction boundary]
+    TX --> Payments[PostgreSQL payment adapter]
+    TX --> Keys[PostgreSQL idempotency adapter]
+    Payments --> DB[(PostgreSQL)]
+    Keys --> DB
 ```
 
-The domain and application layers do not depend on Spring or a database. Repository
-ports make the persistence technology replaceable, while HTTP concerns remain in
-the API adapter.
+The domain and application layers do not depend on a database. Repository ports
+keep persistence replaceable, HTTP concerns remain in the API adapter, and a
+transaction decorator commits the payment and idempotency record as one unit.
 
 ## Local prerequisites
 
@@ -61,7 +66,8 @@ volume across container restarts.
 mvn verify
 ```
 
-The build fails if line coverage drops below 80%.
+The build fails if line coverage drops below 80%. Integration tests launch their own
+isolated PostgreSQL container and apply every Flyway migration from an empty schema.
 
 ## Run the API
 
@@ -91,13 +97,14 @@ curl -i http://localhost:8080/api/v1/payments/{payment-id}
 
 An unknown payment ID returns an RFC 7807 problem response with HTTP `404`.
 
-## Current limitation
+## Current scope
 
-This first learning slice uses in-memory storage. It proves the API and domain
-contract, but data is lost on restart and simultaneous requests across service
-instances are not yet protected. The next milestone replaces the adapters with a
-PostgreSQL transaction and a unique merchant/idempotency-key constraint.
+The project currently accepts and stores a payment in `RECEIVED` state. It does not
+yet contact a payment-provider simulator or publish events. The next milestone adds
+a transactional outbox so committing a payment and scheduling its Kafka event
+cannot drift apart.
 
 ## Architecture decisions
 
 - [ADR-001: Merchant-scoped idempotency](docs/decisions/ADR-001-merchant-scoped-idempotency.md)
+- [ADR-002: Database-enforced concurrent idempotency](docs/decisions/ADR-002-database-enforced-concurrent-idempotency.md)
