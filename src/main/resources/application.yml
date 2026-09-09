@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: payment-reliability-lab
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
