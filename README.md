@@ -11,6 +11,7 @@ have exactly one effect.
 ## First milestone
 
 - Create a payment through a Spring Boot API.
+- Retrieve a payment by its ID.
 - Require a merchant-scoped idempotency key.
 - Replay the original result for an identical retry.
 - Reject reuse of the same key with different payment details.
@@ -67,6 +68,14 @@ curl -i -X POST http://localhost:8080/api/v1/payments \
 Repeat the command without changing the body. The first response is `201 Created`
 with `Idempotency-Replayed: false`; the retry is `200 OK` with
 `Idempotency-Replayed: true` and the same payment ID.
+
+Retrieve the payment using the `id` from either response:
+
+```bash
+curl -i http://localhost:8080/api/v1/payments/{payment-id}
+```
+
+An unknown payment ID returns an RFC 7807 problem response with HTTP `404`.
 
 ## Current limitation
 
