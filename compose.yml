@@ -1,6 +1,39 @@
 name: payment-reliability-lab
 
 services:
+  app:
+    profiles: ["application"]
+    image: payment-reliability-lab:local
+    build:
+      context: .
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-payment_lab}
+      POSTGRES_USER: ${POSTGRES_USER:-payment_lab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env from .env.example}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      PAYMENT_PROVIDER_BASE_URL: http://localhost:8080
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+      DEPLOYMENT_ENVIRONMENT: compose
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
   postgres:
     image: postgres:17.11-bookworm
     environment:

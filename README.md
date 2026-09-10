@@ -1,5 +1,7 @@
 # Payment Reliability Lab
 
+[![CI](https://github.com/yasaswimandava/payment-reliability-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/yasaswimandava/payment-reliability-lab/actions/workflows/ci.yml)
+
 A production-minded Java and Spring Boot reference system for building payment APIs
 that remain safe when clients retry requests, responses are lost, or multiple service
 instances receive the same operation concurrently.
@@ -54,6 +56,9 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Fault lab | The UI controls a synthetic provider with healthy, transient, decline, outage, and timeout modes and exposes attempt counters. |
 | Operations overview | A durable-state dashboard highlights payment backlog, authorization outcomes, unpublished events, and circuit state. |
 | Correlated telemetry | Prometheus metrics, OTLP traces in local Jaeger, ECS logs, and `X-Correlation-ID` connect system behavior across boundaries. |
+| Production-style artifact | A multi-stage Docker build packages the React console and Spring API into one non-root runtime image. |
+| Delivery safeguards | GitHub Actions enforces backend and frontend coverage, linting, builds, Compose validation, and container construction. |
+| Operational exercises | A real PostgreSQL/Redpanda end-to-end test, five-mode fault suite, and k6 idempotency load scenario verify the important failure paths. |
 
 ## Architecture
 
@@ -205,6 +210,8 @@ DLT retains evidence for a future reconciliation workflow.
 - React 19 and TypeScript 6
 - Vite 8
 - Vitest, Testing Library, ESLint, and V8 coverage
+- k6 load scenarios and shell-based fault injection
+- GitHub Actions and Dependabot
 
 ## Quick start
 
@@ -224,6 +231,23 @@ cp .env.example .env
 ```
 
 The example credentials are for local development only. `.env` is ignored by Git.
+
+### Fastest path: run the complete application
+
+Build the production image and start the console, API, PostgreSQL, Redpanda, and
+Jaeger together:
+
+```bash
+docker compose --profile application up -d --build
+docker compose --profile application ps
+```
+
+Wait for `app` to report healthy, then open the combined operations console at
+[http://localhost:8080](http://localhost:8080). The backend endpoints use the same
+origin, while Jaeger remains available at
+[http://localhost:16686](http://localhost:16686).
+
+### Source-development path
 
 ### 2. Start PostgreSQL and Redpanda
 
@@ -430,6 +454,7 @@ For deeper signals, use:
 | `POSTGRES_DB` | `payment_lab` | Local database name. |
 | `POSTGRES_USER` | `payment_lab` | Local database user. |
 | `POSTGRES_PASSWORD` | `payment_lab_local` for the app | Database password; Compose requires it through `.env`. |
+| `APP_PORT` | `8080` | Host port for the combined application container. |
 | `POSTGRES_PORT` | `55432` | Host port mapped to PostgreSQL. |
 | `DB_URL` | `jdbc:postgresql://localhost:${POSTGRES_PORT}/${POSTGRES_DB}` | Full JDBC URL override. |
 | `KAFKA_PORT` | `19092` | Host port mapped to Redpanda's Kafka API. |
@@ -482,6 +507,8 @@ The suite verifies:
 - correlation ID propagation and durable operations-overview reporting;
 - low-cardinality authorization outcome and duration metrics;
 - application behavior through unit and HTTP integration tests;
+- the complete HTTP-to-PostgreSQL-to-Kafka-to-provider pipeline against real
+  PostgreSQL and Redpanda containers;
 - every Flyway migration against an empty Testcontainers PostgreSQL database.
 
 The build fails when line coverage drops below 80%. A Docker runtime must be
@@ -500,6 +527,19 @@ npm run build
 Frontend coverage has the same 80% minimum for statements, branches, functions,
 and lines. Component tests exercise user-visible behavior, while API-client tests
 verify request headers, replay detection, problem responses, and degraded errors.
+
+Run the repeatable operational checks against a live stack:
+
+```bash
+./scripts/run-fault-scenarios.sh
+k6 run performance/payment-api.js
+```
+
+See the [operator runbook](docs/operations/runbook.md) for triage, Kafka and
+database inspection, safe recovery guidance, load-test thresholds, and reset
+instructions. Every push and pull request runs the same backend and frontend
+quality gates in GitHub Actions, then validates Compose and builds the production
+container.
 
 ## Project structure
 
@@ -520,7 +560,12 @@ src/main/resources/
 
 src/test/                Unit and PostgreSQL-backed integration tests
 docs/decisions/          Architecture decision records
+docs/operations/         Local operator runbook
 compose.yml              Local PostgreSQL, Redpanda, and Jaeger environment
+Dockerfile               Multi-stage console and API production image
+performance/             k6 idempotency and latency scenario
+scripts/                 Repeatable fault-injection verification
+.github/                 CI and dependency-update automation
 
 frontend/
 ├── src/App.tsx          Operations console and user workflows
@@ -559,6 +604,7 @@ frontend/
 - [ADR-004: At-least-once Kafka delivery with idempotent consumers](docs/decisions/ADR-004-at-least-once-kafka-delivery.md)
 - [ADR-005: Bounded provider resilience with explicit dead-letter recovery](docs/decisions/ADR-005-bounded-provider-resilience.md)
 - [ADR-006: Operator-centered observability with correlated signals](docs/decisions/ADR-006-operator-centered-observability.md)
+- [ADR-007: Package the operations console with the backend](docs/decisions/ADR-007-single-deployable-operations-console.md)
 
 ## Roadmap
 
@@ -574,11 +620,11 @@ The project is intentionally developed in reviewable milestones:
 - [x] Payment-provider simulator
 - [x] Timeouts, bounded retries, circuit breaker, and dead-letter topic
 - [x] OpenTelemetry traces, Prometheus metrics, structured logs, and operations dashboard
-- [ ] Integration, fault-injection, and load-test scenarios
-- [ ] CI pipeline and container image
+- [x] Full-pipeline integration, fault-injection, and load-test scenarios
+- [x] CI pipeline and production-style container image
 
-Planned features are listed separately from implemented capabilities so the README
-never overstates the system's current behavior.
+All planned portfolio phases are implemented. Future enhancements should begin as
+new, explicitly scoped decisions rather than being presented as existing behavior.
 
 ## Production gaps
 
