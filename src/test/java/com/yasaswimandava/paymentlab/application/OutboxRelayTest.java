@@ -2,6 +2,7 @@ package com.yasaswimandava.paymentlab.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.yasaswimandava.paymentlab.domain.OutboxMessage;
@@ -51,6 +52,71 @@ class OutboxRelayTest {
         verify(eventPublisher).publish(message);
         verify(outboxRepository).markPublished(message.eventId(), "relay-test", NOW);
         assertThat(result).isEqualTo(new RelayBatchResult(1, 1, 0));
+    }
+
+    @Test
+    void returnsAnEmptyResultWhenNothingIsReady() {
+        when(outboxRepository.claimAvailable(
+                        "relay-test", 25, NOW, Duration.ofSeconds(30)))
+                .thenReturn(List.of());
+        OutboxRelay relay = relay();
+
+        RelayBatchResult result = relay.relayOnce();
+
+        assertThat(result).isEqualTo(new RelayBatchResult(0, 0, 0));
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
+    void reschedulesAnEventWithBackoffWhenPublicationFails() {
+        OutboxMessage message = message();
+        when(outboxRepository.claimAvailable(
+                        "relay-test", 25, NOW, Duration.ofSeconds(30)))
+                .thenReturn(List.of(message));
+        org.mockito.Mockito.doThrow(new IllegalStateException("broker unavailable"))
+                .when(eventPublisher)
+                .publish(message);
+        when(outboxRepository.reschedule(
+                        message.eventId(),
+                        "relay-test",
+                        NOW.plusSeconds(1),
+                        "broker unavailable"))
+                .thenReturn(true);
+        OutboxRelay relay = relay();
+
+        RelayBatchResult result = relay.relayOnce();
+
+        verify(outboxRepository).reschedule(
+                message.eventId(),
+                "relay-test",
+                NOW.plusSeconds(1),
+                "broker unavailable");
+        assertThat(result).isEqualTo(new RelayBatchResult(1, 0, 1));
+    }
+
+    @Test
+    void reportsAFailedOutcomeWhenTheWorkerLosesItsLeaseAfterPublishing() {
+        OutboxMessage message = message();
+        when(outboxRepository.claimAvailable(
+                        "relay-test", 25, NOW, Duration.ofSeconds(30)))
+                .thenReturn(List.of(message));
+        when(outboxRepository.markPublished(message.eventId(), "relay-test", NOW))
+                .thenReturn(false);
+        OutboxRelay relay = relay();
+
+        RelayBatchResult result = relay.relayOnce();
+
+        assertThat(result).isEqualTo(new RelayBatchResult(1, 0, 1));
+    }
+
+    private OutboxRelay relay() {
+        return new OutboxRelay(
+                outboxRepository,
+                eventPublisher,
+                CLOCK,
+                "relay-test",
+                25,
+                Duration.ofSeconds(30));
     }
 
     private OutboxMessage message() {

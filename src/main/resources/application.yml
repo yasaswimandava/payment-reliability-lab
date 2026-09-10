@@ -15,6 +15,32 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+payment:
+  events:
+    enabled: ${EVENTS_ENABLED:true}
+    topic: ${PAYMENT_EVENTS_TOPIC:payments.received.v1}
+    consumer-group: ${PAYMENT_EVENTS_CONSUMER_GROUP:payment-projection-v1}
+    acknowledgement-timeout: ${PAYMENT_EVENTS_ACK_TIMEOUT:3s}
+    lock-timeout: ${PAYMENT_EVENTS_LOCK_TIMEOUT:30s}
+    batch-size: ${PAYMENT_EVENTS_BATCH_SIZE:25}
+    relay-interval: ${PAYMENT_EVENTS_RELAY_INTERVAL:500ms}
+    relay-initial-delay: ${PAYMENT_EVENTS_RELAY_INITIAL_DELAY:1s}
 
 management:
   endpoints:

@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings({"rawtypes", "unchecked"})
 class KafkaEventPublisherTest {
 
     @Mock

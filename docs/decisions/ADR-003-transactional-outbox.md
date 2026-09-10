@@ -34,4 +34,5 @@ reclaimed so a worker crash cannot strand an event permanently.
 - Multiple relay workers can claim work without an external distributed lock.
 - Publication is at-least-once, so consumers must deduplicate by event ID.
 - Published-event retention and cleanup need an explicit operational policy.
-- Phase 3 will add the Kafka publisher, bounded backoff, and an idempotent consumer.
+- Kafka publication, bounded relay backoff, and idempotent consumption implement
+  the delivery side of this decision in Phase 3.

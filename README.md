@@ -23,6 +23,7 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 - atomic persistence of a payment, its idempotency record, and an outbox event;
 - database-enforced duplicate protection across service instances;
 - durable event staging with exclusive, recoverable relay claims;
+- acknowledged Kafka publication and idempotent event consumption;
 - deterministic concurrency testing against real PostgreSQL;
 - clear HTTP semantics for first attempts, safe replays, conflicts, and errors;
 - hexagonal boundaries that keep domain logic independent of HTTP and PostgreSQL.
@@ -42,6 +43,8 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Operations console | A responsive React and TypeScript UI demonstrates creation, replay, conflict, and lookup behavior through the real API. |
 | Transactional outbox | Every new payment stages one durable `PAYMENT_RECEIVED` event in the payment transaction; safe replays stage none. |
 | Relay ownership | PostgreSQL workers claim batches exclusively, recover expired leases, and owner-check publication or rescheduling. |
+| Kafka event pipeline | A scheduled relay publishes to a three-partition topic only after broker acknowledgment, then marks the outbox row published. |
+| Idempotent consumer | A Kafka consumer records each event ID and creates a queryable payment projection atomically; redelivery becomes a no-op. |
 
 ## Architecture
 
@@ -60,7 +63,11 @@ flowchart LR
     PaymentAdapter --> DB[(PostgreSQL)]
     KeyAdapter --> DB
     OutboxAdapter --> DB
-    OutboxAdapter -. Phase 3 relay .-> Kafka[(Kafka)]
+    OutboxAdapter --> Relay[Scheduled outbox relay]
+    Relay -->|acks=all| Kafka[(Redpanda / Kafka API)]
+    Kafka --> Consumer[Payment event consumer]
+    Consumer --> Ledger[Processed-event ledger + projection]
+    Ledger --> DB
 ```
 
 The domain and application layers do not depend on Spring MVC or PostgreSQL.
@@ -134,7 +141,9 @@ consumer needs:
 - Java 17
 - Spring Boot 3.5
 - Spring MVC, Bean Validation, JDBC, and Actuator
+- Spring for Apache Kafka
 - PostgreSQL 17
+- Redpanda 26.2 through the Kafka API
 - Flyway
 - Docker Compose
 - JUnit 5, MockMvc, Testcontainers, AssertJ, and Mockito
@@ -163,15 +172,16 @@ cp .env.example .env
 
 The example credentials are for local development only. `.env` is ignored by Git.
 
-### 2. Start PostgreSQL
+### 2. Start PostgreSQL and Redpanda
 
 ```bash
-docker compose up -d postgres
+docker compose up -d
 docker compose ps
 ```
 
-The database listens on `127.0.0.1:55432` by default and stores data in a named
-Docker volume so it survives container restarts.
+PostgreSQL listens on `127.0.0.1:55432` and Redpanda's Kafka API listens on
+`127.0.0.1:19092` by default. Both use named Docker volumes so local data survives
+container restarts.
 
 ### 3. Run the application
 
@@ -211,6 +221,15 @@ The console is designed to make the reliability contract visible:
 2. Send it again without changing the key or payload to observe a safe replay.
 3. Change the amount but retain the key to observe an intentional `409 Conflict`.
 4. Use the returned UUID to retrieve the durable payment record.
+
+Within about one relay interval, the payment's outbox row becomes `PUBLISHED` and
+the consumer creates one row in `payment_event_projection`. Inspect the topic
+directly with:
+
+```bash
+docker compose exec redpanda \
+  rpk topic consume payments.received.v1 --num 1
+```
 
 ## Try the reliability behavior
 
@@ -308,6 +327,11 @@ Responses:
 | `POSTGRES_PASSWORD` | `payment_lab_local` for the app | Database password; Compose requires it through `.env`. |
 | `POSTGRES_PORT` | `55432` | Host port mapped to PostgreSQL. |
 | `DB_URL` | `jdbc:postgresql://localhost:${POSTGRES_PORT}/${POSTGRES_DB}` | Full JDBC URL override. |
+| `KAFKA_PORT` | `19092` | Host port mapped to Redpanda's Kafka API. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Broker addresses used by the application. |
+| `PAYMENT_EVENTS_TOPIC` | `payments.received.v1` | Versioned payment event topic. |
+| `PAYMENT_EVENTS_CONSUMER_GROUP` | `payment-projection-v1` | Idempotent projection consumer group. |
+| `EVENTS_ENABLED` | `true` | Enables topic creation, relay scheduling, and consumption. |
 
 The Hikari connection pool is intentionally small for a local lab: maximum 10
 connections, minimum 2 idle connections, and a 3-second connection timeout.
@@ -329,6 +353,9 @@ The suite verifies:
 - concurrent identical requests producing one stored payment;
 - atomic creation of exactly one outbox event for a new payment and none for a replay;
 - exclusive relay claims, lease recovery, rescheduling, and owner-checked publication;
+- Kafka record construction, bounded acknowledgments, and failure propagation;
+- consumer payload validation and duplicate delivery handling;
+- atomic processed-event ledger and payment projection persistence;
 - application behavior through unit and HTTP integration tests;
 - every Flyway migration against an empty Testcontainers PostgreSQL database.
 
@@ -358,7 +385,8 @@ src/main/java/com/yasaswimandava/paymentlab/
 ├── domain/              Payment model and state
 ├── port/                Persistence interfaces
 ├── adapter/postgres/    JDBC repositories and transaction boundary
-└── config/              Dependency wiring
+├── messaging/           Kafka publisher, listener, and scheduled outbox relay
+└── config/              Typed configuration and dependency wiring
 
 src/main/resources/
 ├── application.yml      Runtime and actuator configuration
@@ -366,7 +394,7 @@ src/main/resources/
 
 src/test/                Unit and PostgreSQL-backed integration tests
 docs/decisions/          Architecture decision records
-compose.yml              Local PostgreSQL environment
+compose.yml              Local PostgreSQL and Redpanda environment
 
 frontend/
 ├── src/App.tsx          Operations console and user workflows
@@ -387,6 +415,9 @@ frontend/
 | Service restarts after commit | The durable idempotency record still resolves the retry. |
 | Service crashes after committing a payment | The event remains durable in the outbox for a relay worker to publish. |
 | Relay worker crashes after claiming an event | Another worker can reclaim it after the lease expires. |
+| Kafka accepts an event but the relay stops before updating PostgreSQL | The event may be published again; the consumer event ledger makes the duplicate a no-op. |
+| Kafka is unavailable or does not acknowledge in time | The relay reschedules the outbox event with bounded exponential backoff. |
+| Consumer restarts after applying its effect | Kafka may redeliver; the stable event ID prevents a second projection effect. |
 | PostgreSQL is unavailable | The request fails; resilience and operator-facing error mapping are future work. |
 | External provider accepts a charge but the response is lost | Not implemented yet; the provider boundary will require its own idempotency and reconciliation strategy. |
 
@@ -395,6 +426,7 @@ frontend/
 - [ADR-001: Merchant-scoped idempotency](docs/decisions/ADR-001-merchant-scoped-idempotency.md)
 - [ADR-002: Database-enforced concurrent idempotency](docs/decisions/ADR-002-database-enforced-concurrent-idempotency.md)
 - [ADR-003: Transactional outbox for durable event publication](docs/decisions/ADR-003-transactional-outbox.md)
+- [ADR-004: At-least-once Kafka delivery with idempotent consumers](docs/decisions/ADR-004-at-least-once-kafka-delivery.md)
 
 ## Roadmap
 
@@ -406,7 +438,7 @@ The project is intentionally developed in reviewable milestones:
 - [x] Atomic writes and deterministic concurrency verification
 - [x] React and TypeScript operations console
 - [x] Transactional outbox and exclusive relay claims
-- [ ] Kafka event processing and consumer idempotency
+- [x] Kafka event processing and consumer idempotency
 - [ ] Payment-provider simulator
 - [ ] Timeouts, bounded retries, circuit breaker, and dead-letter queue
 - [ ] OpenTelemetry traces, metrics, and structured logs

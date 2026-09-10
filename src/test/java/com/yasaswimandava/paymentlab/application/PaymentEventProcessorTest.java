@@ -1,6 +1,7 @@
 package com.yasaswimandava.paymentlab.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,5 +57,17 @@ class PaymentEventProcessorTest {
         assertThat(eventCaptor.getValue().currency().getCurrencyCode()).isEqualTo("USD");
         assertThat(first).isEqualTo(EventProcessingResult.PROCESSED);
         assertThat(duplicate).isEqualTo(EventProcessingResult.DUPLICATE);
+    }
+
+    @Test
+    void rejectsMalformedEventsBeforeTheyReachTheConsumerLedger() {
+        PaymentEventProcessor processor = new PaymentEventProcessor(
+                new ObjectMapper().findAndRegisterModules(),
+                processedEventRepository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> processor.process("{not-json}"))
+                .isInstanceOf(InvalidPaymentEventException.class)
+                .hasMessage("Invalid PAYMENT_RECEIVED payload");
     }
 }
