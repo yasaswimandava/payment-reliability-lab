@@ -2,11 +2,14 @@ package com.yasaswimandava.paymentlab.config;
 
 import com.yasaswimandava.paymentlab.adapter.postgres.PostgresIdempotencyRepository;
 import com.yasaswimandava.paymentlab.adapter.postgres.PostgresPaymentRepository;
+import com.yasaswimandava.paymentlab.adapter.postgres.PostgresOutboxRepository;
 import com.yasaswimandava.paymentlab.adapter.postgres.TransactionalPaymentOperations;
 import com.yasaswimandava.paymentlab.application.PaymentApplicationService;
 import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import com.yasaswimandava.paymentlab.port.IdempotencyRepository;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import com.yasaswimandava.paymentlab.port.OutboxRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,11 +36,21 @@ public class PaymentConfiguration {
     }
 
     @Bean
+    OutboxRepository outboxRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+        return new PostgresOutboxRepository(jdbcTemplate, objectMapper);
+    }
+
+    @Bean
     PaymentApplicationService paymentApplicationService(
             PaymentRepository paymentRepository,
             IdempotencyRepository idempotencyRepository,
+            OutboxRepository outboxRepository,
             Clock clock) {
-        return new PaymentApplicationService(paymentRepository, idempotencyRepository, clock);
+        return new PaymentApplicationService(
+                paymentRepository,
+                idempotencyRepository,
+                outboxRepository,
+                clock);
     }
 
     @Bean

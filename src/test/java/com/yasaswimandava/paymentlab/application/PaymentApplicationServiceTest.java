@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.yasaswimandava.paymentlab.domain.Payment;
+import com.yasaswimandava.paymentlab.domain.PaymentReceivedEvent;
 import com.yasaswimandava.paymentlab.domain.PaymentStatus;
 import com.yasaswimandava.paymentlab.port.IdempotencyRecord;
 import com.yasaswimandava.paymentlab.port.IdempotencyRepository;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import com.yasaswimandava.paymentlab.port.OutboxRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -28,14 +30,17 @@ class PaymentApplicationServiceTest {
     private static final String IDEMPOTENCY_KEY = "checkout-session-456";
 
     private InMemoryPaymentRepository paymentRepository;
+    private InMemoryOutboxRepository outboxRepository;
     private PaymentApplicationService service;
 
     @BeforeEach
     void setUp() {
         paymentRepository = new InMemoryPaymentRepository();
+        outboxRepository = new InMemoryOutboxRepository();
         service = new PaymentApplicationService(
                 paymentRepository,
                 new InMemoryIdempotencyRepository(),
+                outboxRepository,
                 FIXED_CLOCK);
     }
 
@@ -50,6 +55,7 @@ class PaymentApplicationServiceTest {
         assertThat(result.payment().createdAt()).isEqualTo(FIXED_CLOCK.instant());
         assertThat(result.replayed()).isFalse();
         assertThat(paymentRepository.savedCount()).isEqualTo(1);
+        assertThat(outboxRepository.savedCount()).isEqualTo(1);
     }
 
     @Test
@@ -60,6 +66,7 @@ class PaymentApplicationServiceTest {
         assertThat(retry.payment()).isEqualTo(original.payment());
         assertThat(retry.replayed()).isTrue();
         assertThat(paymentRepository.savedCount()).isEqualTo(1);
+        assertThat(outboxRepository.savedCount()).isEqualTo(1);
     }
 
     @Test
@@ -74,6 +81,7 @@ class PaymentApplicationServiceTest {
                 .isInstanceOf(IdempotencyConflictException.class)
                 .hasMessageContaining(IDEMPOTENCY_KEY);
         assertThat(paymentRepository.savedCount()).isEqualTo(1);
+        assertThat(outboxRepository.savedCount()).isEqualTo(1);
     }
 
     @Test
@@ -147,6 +155,20 @@ class PaymentApplicationServiceTest {
 
         private String scopedKey(String merchantId, String idempotencyKey) {
             return merchantId + ":" + idempotencyKey;
+        }
+    }
+
+    private static final class InMemoryOutboxRepository implements OutboxRepository {
+
+        private final Map<UUID, PaymentReceivedEvent> events = new HashMap<>();
+
+        @Override
+        public void save(PaymentReceivedEvent event) {
+            events.put(event.eventId(), event);
+        }
+
+        int savedCount() {
+            return events.size();
         }
     }
 }

@@ -1,10 +1,12 @@
 package com.yasaswimandava.paymentlab.application;
 
 import com.yasaswimandava.paymentlab.domain.Payment;
+import com.yasaswimandava.paymentlab.domain.PaymentReceivedEvent;
 import com.yasaswimandava.paymentlab.domain.PaymentStatus;
 import com.yasaswimandava.paymentlab.port.IdempotencyRecord;
 import com.yasaswimandava.paymentlab.port.IdempotencyRepository;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import com.yasaswimandava.paymentlab.port.OutboxRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -17,14 +19,17 @@ public final class PaymentApplicationService implements PaymentOperations {
 
     private final PaymentRepository paymentRepository;
     private final IdempotencyRepository idempotencyRepository;
+    private final OutboxRepository outboxRepository;
     private final Clock clock;
 
     public PaymentApplicationService(
             PaymentRepository paymentRepository,
             IdempotencyRepository idempotencyRepository,
+            OutboxRepository outboxRepository,
             Clock clock) {
         this.paymentRepository = Objects.requireNonNull(paymentRepository);
         this.idempotencyRepository = Objects.requireNonNull(idempotencyRepository);
+        this.outboxRepository = Objects.requireNonNull(outboxRepository);
         this.clock = Objects.requireNonNull(clock);
     }
 
@@ -79,6 +84,7 @@ public final class PaymentApplicationService implements PaymentOperations {
                 idempotencyKey,
                 fingerprint,
                 savedPayment.id()));
+        outboxRepository.save(PaymentReceivedEvent.from(savedPayment));
         return new CreatePaymentResult(savedPayment, false);
     }
 
