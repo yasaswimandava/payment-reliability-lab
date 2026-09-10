@@ -69,6 +69,38 @@ describe('payment API client', () => {
     )
   })
 
+  it('identifies a replay from the response header', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ...payment, replayed: true }), {
+        status: 200,
+        headers: { 'Idempotency-Replayed': 'true' },
+      }),
+    )
+
+    const result = await createPayment({
+      merchantId: 'northstar-coffee',
+      idempotencyKey: 'order-1042',
+      amount: '42.50',
+      currency: 'USD',
+    })
+
+    expect(result.replayed).toBe(true)
+  })
+
+  it('provides a useful fallback when an error has no JSON body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 503 }),
+    )
+
+    await expect(getPayment(payment.id)).rejects.toEqual(
+      expect.objectContaining<Partial<PaymentApiError>>({
+        status: 503,
+        title: 'Payment request failed',
+        message: 'The API returned HTTP 503.',
+      }),
+    )
+  })
+
   it('retrieves a payment by ID', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

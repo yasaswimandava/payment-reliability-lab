@@ -21,7 +21,7 @@ describe('Payment Reliability Console', () => {
       screen.getByRole('heading', { name: /make every retry safe/i }),
     ).toBeInTheDocument()
     expect(screen.getByText(/exactly one business effect/i)).toBeInTheDocument()
-    expect(screen.getByText(/phase 1 · foundation online/i)).toBeInTheDocument()
+    expect(screen.getByText(/phase 1.5 · console online/i)).toBeInTheDocument()
   })
 
   it('creates a payment and shows its operational result', async () => {
@@ -65,7 +65,7 @@ describe('Payment Reliability Console', () => {
 
     expect(await screen.findByText('Idempotency key conflict')).toBeInTheDocument()
     expect(screen.getByText(/different payload/i)).toBeInTheDocument()
-    expect(screen.getByText(/409/)).toBeInTheDocument()
+    expect(screen.getByText('HTTP 409')).toBeInTheDocument()
   })
 
   it('retrieves an existing payment', async () => {
@@ -80,5 +80,17 @@ describe('Payment Reliability Console', () => {
 
     expect(await screen.findByText(/payment located/i)).toBeInTheDocument()
     expect(screen.getByText(payment.id)).toBeInTheDocument()
+    expect(screen.getByText(/durable record retrieved/i)).toBeInTheDocument()
+  })
+
+  it('explains how to recover when the backend is unavailable', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /send payment/i }))
+
+    expect(await screen.findByText('API connection unavailable')).toBeInTheDocument()
+    expect(screen.getByText(/start the spring boot service/i)).toBeInTheDocument()
   })
 })

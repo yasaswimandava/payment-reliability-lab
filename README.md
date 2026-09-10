@@ -38,11 +38,13 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Durable persistence | PostgreSQL stores payments and idempotency records in one transaction. |
 | Schema management | Flyway applies versioned database migrations at startup and during tests. |
 | Verification | Unit and integration tests run with JUnit 5, MockMvc, Testcontainers, and JaCoCo. |
+| Operations console | A responsive React and TypeScript UI demonstrates creation, replay, conflict, and lookup behavior through the real API. |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
+    Console[React operations console] -->|Vite development proxy| Controller
     Client[API client] -->|POST + merchant ID<br/>+ idempotency key| Controller[Payment REST API]
     Controller --> Application[Payment application service]
     Application --> Transaction[Transaction boundary]
@@ -100,6 +102,9 @@ require additional patterns planned below.
 - JUnit 5, MockMvc, Testcontainers, AssertJ, and Mockito
 - JaCoCo with an enforced 80% line-coverage floor
 - Maven
+- React 19 and TypeScript 6
+- Vite 8
+- Vitest, Testing Library, ESLint, and V8 coverage
 
 ## Quick start
 
@@ -147,6 +152,27 @@ Expected result:
 ```json
 {"status":"UP"}
 ```
+
+### 4. Run the operations console
+
+In a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` and
+`/actuator` requests to Spring Boot on port `8080`, so local development does not
+require permissive cross-origin configuration in the backend.
+
+The console is designed to make the reliability contract visible:
+
+1. Send the prefilled request to create a payment.
+2. Send it again without changing the key or payload to observe a safe replay.
+3. Change the amount but retain the key to observe an intentional `409 Conflict`.
+4. Use the returned UUID to retrieve the durable payment record.
 
 ## Try the reliability behavior
 
@@ -270,6 +296,19 @@ The build fails when line coverage drops below 80%. A Docker runtime must be
 available because integration tests use a real PostgreSQL container rather than an
 in-memory database.
 
+Verify the frontend separately:
+
+```bash
+cd frontend
+npm run test:coverage
+npm run lint
+npm run build
+```
+
+Frontend coverage has the same 80% minimum for statements, branches, functions,
+and lines. Component tests exercise user-visible behavior, while API-client tests
+verify request headers, replay detection, problem responses, and degraded errors.
+
 ## Project structure
 
 ```text
@@ -288,6 +327,13 @@ src/main/resources/
 src/test/                Unit and PostgreSQL-backed integration tests
 docs/decisions/          Architecture decision records
 compose.yml              Local PostgreSQL environment
+
+frontend/
+├── src/App.tsx          Operations console and user workflows
+├── src/lib/             Typed backend API client
+├── src/*.test.tsx       Component behavior tests
+├── src/styles.css       Responsive visual system
+└── vite.config.ts       Local proxy, testing, and coverage configuration
 ```
 
 ## Failure scenarios and guarantees
@@ -315,6 +361,7 @@ The project is intentionally developed in reviewable milestones:
 - [x] Merchant-scoped idempotency and conflict detection
 - [x] PostgreSQL persistence and Flyway migrations
 - [x] Atomic writes and deterministic concurrency verification
+- [x] React and TypeScript operations console
 - [ ] Transactional outbox
 - [ ] Kafka event processing and consumer idempotency
 - [ ] Payment-provider simulator
@@ -322,7 +369,6 @@ The project is intentionally developed in reviewable milestones:
 - [ ] OpenTelemetry traces, metrics, and structured logs
 - [ ] Integration, fault-injection, and load-test scenarios
 - [ ] CI pipeline and container image
-- [ ] React and TypeScript operations console
 
 Planned features are listed separately from implemented capabilities so the README
 never overstates the system's current behavior.
