@@ -15,7 +15,7 @@ COPY --from=frontend-build /workspace/frontend/dist ./src/main/resources/static
 RUN mvn --batch-mode -Dmaven.test.skip=true package \
     && cp target/payment-reliability-lab-0.0.1-SNAPSHOT.jar /workspace/application.jar
 
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:25-jre-jammy
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends curl \
