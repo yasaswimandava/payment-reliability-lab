@@ -182,6 +182,44 @@ class PaymentApiIntegrationTest {
     }
 
     @Test
+    void stagesExactlyOnePaymentReceivedEventForANewPaymentAndItsReplay() throws Exception {
+        String outboxKey = "order-outbox-test";
+        MvcResult created = mockMvc.perform(post(PAYMENTS_URL)
+                        .header("X-Merchant-Id", MERCHANT_ID)
+                        .header("Idempotency-Key", outboxKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson("315.40")))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String paymentId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        mockMvc.perform(post(PAYMENTS_URL)
+                        .header("X-Merchant-Id", MERCHANT_ID)
+                        .header("Idempotency-Key", outboxKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson("315.40")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotency-Replayed", "true"));
+
+        Long eventCount = jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where aggregate_id = ?::uuid",
+                Long.class,
+                paymentId);
+        String eventType = jdbcTemplate.queryForObject(
+                "select event_type from outbox_events where aggregate_id = ?::uuid",
+                String.class,
+                paymentId);
+        String payloadPaymentId = jdbcTemplate.queryForObject(
+                "select payload ->> 'paymentId' from outbox_events where aggregate_id = ?::uuid",
+                String.class,
+                paymentId);
+
+        org.assertj.core.api.Assertions.assertThat(eventCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(eventType).isEqualTo("PAYMENT_RECEIVED");
+        org.assertj.core.api.Assertions.assertThat(payloadPaymentId).isEqualTo(paymentId);
+    }
+
+    @Test
     void concurrentIdenticalRequestsHaveExactlyOneBusinessEffect() throws Exception {
         String merchantId = "merchant-concurrency-test";
         String idempotencyKey = "concurrent-order-1";
@@ -202,6 +240,13 @@ class PaymentApiIntegrationTest {
                     "select count(*) from payments where merchant_id = ?",
                     Long.class,
                     merchantId);
+            long stagedEvents = jdbcTemplate.queryForObject(
+                    """
+                    select count(*) from outbox_events
+                    where aggregate_id = ?::uuid and event_type = 'PAYMENT_RECEIVED'
+                    """,
+                    Long.class,
+                    first.payment().id());
 
             org.assertj.core.api.Assertions.assertThat(
                             List.of(first.payment().id(), second.payment().id()))
@@ -210,6 +255,7 @@ class PaymentApiIntegrationTest {
                             List.of(first.replayed(), second.replayed()))
                     .containsExactlyInAnyOrder(false, true);
             org.assertj.core.api.Assertions.assertThat(storedPayments).isEqualTo(1);
+            org.assertj.core.api.Assertions.assertThat(stagedEvents).isEqualTo(1);
         } finally {
             executor.shutdownNow();
         }
