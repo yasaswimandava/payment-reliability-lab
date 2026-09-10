@@ -145,8 +145,8 @@ describe('payment API client', () => {
     const overview = {
       health: 'HEALTHY',
       generatedAt: '2026-09-10T02:00:00Z',
-      payments: { total: 12, received: 2, authorized: 9, declined: 1 },
-      outbox: { unpublished: 1, processing: 0, failed: 0 },
+      payments: { total: 12, received: 2, stale: 1, authorized: 9, declined: 1 },
+      outbox: { unpublished: 1, stale: 0, processing: 0, failed: 0 },
       provider: { circuitState: 'CLOSED' },
     }
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

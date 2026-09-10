@@ -18,13 +18,15 @@ import org.springframework.web.client.RestClient;
 public class ProviderConfiguration {
 
     @Bean("rawPaymentProvider")
-    PaymentProvider rawPaymentProvider(PaymentProviderProperties properties) {
+    PaymentProvider rawPaymentProvider(
+            PaymentProviderProperties properties,
+            RestClient.Builder restClientBuilder) {
         SimpleClientHttpRequestFactory requestFactory =
                 new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.connectTimeout());
         requestFactory.setReadTimeout(properties.readTimeout());
         return new HttpPaymentProviderClient(
-                RestClient.builder().requestFactory(requestFactory),
+                restClientBuilder.requestFactory(requestFactory),
                 properties.baseUrl());
     }
 

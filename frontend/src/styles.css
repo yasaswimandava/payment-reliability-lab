@@ -173,6 +173,7 @@ main {
 
 .hero h1,
 .section-heading h2,
+.operations-heading h2,
 .guarantees h2,
 .roadmap h2 {
   margin: 0;
@@ -331,6 +332,7 @@ main {
 }
 
 .workbench,
+.operations,
 .simulator,
 .guarantees,
 .roadmap {
@@ -346,6 +348,7 @@ main {
 }
 
 .section-heading h2,
+.operations-heading h2,
 .guarantees h2,
 .roadmap h2 {
   font-size: clamp(3rem, 6vw, 6rem);
@@ -356,6 +359,135 @@ main {
   color: var(--muted);
   font-size: 0.98rem;
   line-height: 1.7;
+}
+
+.operations {
+  border-bottom: 1px solid var(--line);
+}
+
+.operations-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 48px;
+}
+
+.operations-heading .secondary-button {
+  min-width: 190px;
+  padding: 0 22px;
+}
+
+.operations-board {
+  display: grid;
+  grid-template-columns: 1.35fr repeat(4, 1fr);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+}
+
+.operations-board article {
+  min-width: 0;
+  min-height: 240px;
+  padding: 30px;
+  border-right: 1px solid var(--line);
+}
+
+.operations-board article:last-child {
+  border-right: 0;
+}
+
+.health-card {
+  display: flex;
+  flex-direction: column;
+  border-top: 3px solid var(--mint);
+}
+
+.health-card--attention {
+  border-top-color: var(--error);
+}
+
+.health-card h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.health-card > p:not(.micro-label),
+.metric-card p,
+.operations-empty p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.health-card small {
+  margin-top: auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.metric-card > span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.metric-card strong {
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: clamp(2rem, 4vw, 3.8rem);
+  font-weight: 400;
+}
+
+.metric-card strong i {
+  margin: 0 5px;
+  color: var(--muted);
+  font-size: 0.45em;
+  font-style: normal;
+}
+
+.metric-card .metric-card__state {
+  font-size: clamp(1.3rem, 2.2vw, 2.1rem);
+}
+
+.metric-card p {
+  margin: 0;
+}
+
+.operations-empty {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 36px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+}
+
+.operations-empty p {
+  margin: 0;
+}
+
+.operations-empty div {
+  display: flex;
+  gap: 24px;
+}
+
+.operations-empty a {
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-decoration: none;
+  text-transform: uppercase;
 }
 
 .console-frame {
@@ -983,6 +1115,24 @@ footer span {
     grid-template-columns: 1fr;
   }
 
+  .operations-board {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .operations-board article,
+  .operations-board article:last-child {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .operations-board article:nth-child(even) {
+    border-right: 0;
+  }
+
+  .operations-board article:last-child {
+    border-bottom: 0;
+  }
+
   .console-controls {
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -1078,6 +1228,7 @@ footer span {
   }
 
   .workbench,
+  .operations,
   .simulator,
   .guarantees,
   .roadmap {
@@ -1087,6 +1238,38 @@ footer span {
   .section-heading {
     grid-template-columns: 1fr;
     gap: 30px;
+  }
+
+  .operations-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .operations-board {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-board article,
+  .operations-board article:last-child,
+  .operations-board article:nth-child(even) {
+    min-height: 190px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .operations-board article:last-child {
+    border-bottom: 0;
+  }
+
+  .operations-empty {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 28px 20px;
+  }
+
+  .operations-empty div {
+    flex-direction: column;
+    gap: 14px;
   }
 
   .console-controls {

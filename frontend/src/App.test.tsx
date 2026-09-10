@@ -130,8 +130,8 @@ describe('Payment Reliability Console', () => {
         JSON.stringify({
           health: 'ATTENTION',
           generatedAt: '2026-09-10T02:00:00Z',
-          payments: { total: 12, received: 2, authorized: 9, declined: 1 },
-          outbox: { unpublished: 3, processing: 1, failed: 1 },
+          payments: { total: 12, received: 2, stale: 1, authorized: 9, declined: 1 },
+          outbox: { unpublished: 3, stale: 1, processing: 1, failed: 1 },
           provider: { circuitState: 'OPEN' },
         }),
         { status: 200 },

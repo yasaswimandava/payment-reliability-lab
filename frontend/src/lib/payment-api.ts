@@ -22,6 +22,28 @@ export interface ProviderSimulatorStatus {
   successfulAuthorizations: number
 }
 
+export interface OperationsOverview {
+  health: 'HEALTHY' | 'ATTENTION'
+  generatedAt: string
+  payments: {
+    total: number
+    received: number
+    stale: number
+    authorized: number
+    declined: number
+  }
+  outbox: {
+    unpublished: number
+    stale: number
+    processing: number
+    failed: number
+    oldestUnpublishedAt?: string | null
+  }
+  provider: {
+    circuitState: string
+  }
+}
+
 export interface CreatePaymentInput {
   merchantId: string
   idempotencyKey: string
@@ -125,4 +147,12 @@ export async function configureProvider(
     body: JSON.stringify({ mode }),
   })
   return requireProviderStatus(response)
+}
+
+export async function getOperationsOverview(): Promise<OperationsOverview> {
+  const response = await fetch('/api/v1/operations/overview')
+  if (!response.ok) {
+    throw await readProblem(response)
+  }
+  return (await response.json()) as OperationsOverview
 }

@@ -12,6 +12,7 @@ import com.yasaswimandava.paymentlab.messaging.PaymentReceivedKafkaListener;
 import com.yasaswimandava.paymentlab.port.EventPublisher;
 import com.yasaswimandava.paymentlab.port.OutboxRepository;
 import com.yasaswimandava.paymentlab.port.ProcessedPaymentEventRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.util.UUID;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -100,8 +101,10 @@ public class EventMessagingConfiguration {
     @Bean
     PaymentAuthorizationKafkaListener paymentAuthorizationKafkaListener(
             PaymentReceivedEventCodec eventCodec,
-            PaymentAuthorizationService authorizationService) {
-        return new PaymentAuthorizationKafkaListener(eventCodec, authorizationService);
+            PaymentAuthorizationService authorizationService,
+            MeterRegistry meterRegistry) {
+        return new PaymentAuthorizationKafkaListener(
+                eventCodec, authorizationService, meterRegistry);
     }
 
     @Bean

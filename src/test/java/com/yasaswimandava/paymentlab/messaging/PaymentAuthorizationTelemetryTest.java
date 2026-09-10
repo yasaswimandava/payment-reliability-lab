@@ -4,9 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yasaswimandava.paymentlab.application.AuthorizationProcessingResult;
 import com.yasaswimandava.paymentlab.application.PaymentAuthorizationService;
+import com.yasaswimandava.paymentlab.domain.Payment;
+import com.yasaswimandava.paymentlab.domain.PaymentStatus;
+import com.yasaswimandava.paymentlab.port.PaymentProvider;
+import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import com.yasaswimandava.paymentlab.provider.ProviderAuthorization;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Currency;
+import java.util.Optional;
+import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 
@@ -14,10 +23,26 @@ class PaymentAuthorizationTelemetryTest {
 
     @Test
     void recordsALowCardinalityAuthorizationOutcomeAndDuration() {
-        PaymentAuthorizationService service =
-                org.mockito.Mockito.mock(PaymentAuthorizationService.class);
-        when(service.authorize(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(AuthorizationProcessingResult.AUTHORIZED);
+        PaymentRepository repository = org.mockito.Mockito.mock(PaymentRepository.class);
+        PaymentProvider provider = org.mockito.Mockito.mock(PaymentProvider.class);
+        Payment payment = new Payment(
+                UUID.fromString("2daef927-8eb7-46ab-9a5a-49cd552a3210"),
+                "merchant-1",
+                new BigDecimal("42.50"),
+                Currency.getInstance("USD"),
+                PaymentStatus.RECEIVED,
+                null,
+                Instant.parse("2026-09-09T22:00:00Z"));
+        when(repository.findById(payment.id())).thenReturn(Optional.of(payment));
+        when(provider.authorize(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(ProviderAuthorization.approved("provider-123"));
+        when(repository.completeAuthorization(
+                        payment.id(),
+                        PaymentStatus.RECEIVED,
+                        PaymentStatus.AUTHORIZED,
+                        "provider-123"))
+                .thenReturn(true);
+        PaymentAuthorizationService service = new PaymentAuthorizationService(repository, provider);
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
         PaymentAuthorizationKafkaListener listener = new PaymentAuthorizationKafkaListener(
                 new PaymentReceivedEventCodec(new ObjectMapper().findAndRegisterModules()),

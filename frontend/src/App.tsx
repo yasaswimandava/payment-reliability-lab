@@ -4,8 +4,10 @@ import {
   configureProvider,
   createPayment,
   getPayment,
+  getOperationsOverview,
   getProviderStatus,
   type Payment,
+  type OperationsOverview,
   type ProviderMode,
   type ProviderSimulatorStatus,
 } from './lib/payment-api'
@@ -170,6 +172,9 @@ export default function App() {
   const [providerStatus, setProviderStatus] = useState<ProviderSimulatorStatus | null>(null)
   const [providerPending, setProviderPending] = useState(false)
   const [providerError, setProviderError] = useState<string | null>(null)
+  const [operations, setOperations] = useState<OperationsOverview | null>(null)
+  const [operationsPending, setOperationsPending] = useState(false)
+  const [operationsError, setOperationsError] = useState<string | null>(null)
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -234,6 +239,18 @@ export default function App() {
     }
   }
 
+  async function handleOperationsRefresh() {
+    setOperationsPending(true)
+    setOperationsError(null)
+    try {
+      setOperations(await getOperationsOverview())
+    } catch (requestError) {
+      setOperationsError(presentError(requestError).detail)
+    } finally {
+      setOperationsPending(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -246,6 +263,7 @@ export default function App() {
         </a>
         <nav aria-label="Primary navigation">
           <a href="#workbench">Workbench</a>
+          <a href="#operations">Operations</a>
           <a href="#simulator">Fault lab</a>
           <a href="#guarantees">Guarantees</a>
           <a href="#roadmap">Roadmap</a>
@@ -288,6 +306,67 @@ export default function App() {
           <div><span>02</span><p>Commit model<strong>Atomic write</strong></p></div>
           <div><span>03</span><p>Concurrency arbiter<strong>PostgreSQL</strong></p></div>
           <div><span>04</span><p>Coverage floor<strong>80% enforced</strong></p></div>
+        </section>
+
+        <section className="operations" id="operations" aria-labelledby="operations-title">
+          <div className="operations-heading">
+            <div>
+              <p className="eyebrow"><span>Live state</span> / operator overview</p>
+              <h2 id="operations-title">Know where risk is waiting.</h2>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={handleOperationsRefresh}
+              disabled={operationsPending}
+            >
+              {operationsPending ? 'Refreshing…' : 'Refresh operations'}
+            </button>
+          </div>
+
+          {operations ? (
+            <div className="operations-board" aria-live="polite">
+              <article className={`health-card health-card--${operations.health.toLowerCase()}`}>
+                <p className="micro-label">System posture</p>
+                <h3>{operations.health === 'HEALTHY' ? 'Operating normally' : 'Needs attention'}</h3>
+                <p>
+                  {operations.health === 'HEALTHY'
+                    ? 'No failed outbox work and the provider circuit is available.'
+                    : 'Inspect failed delivery or provider availability before replaying work.'}
+                </p>
+                <small>Snapshot {formatTimestamp(operations.generatedAt)}</small>
+              </article>
+              <article className="metric-card">
+                <span>Awaiting authorization</span>
+                <strong>{operations.payments.received}</strong>
+                <p>{operations.payments.received} awaiting authorization · {operations.payments.stale} stale</p>
+              </article>
+              <article className="metric-card">
+                <span>Authorized / declined</span>
+                <strong>{operations.payments.authorized}<i>/</i>{operations.payments.declined}</strong>
+                <p>{operations.payments.total} total durable payments</p>
+              </article>
+              <article className="metric-card">
+                <span>Unpublished events</span>
+                <strong>{operations.outbox.unpublished}</strong>
+                <p>{operations.outbox.stale} stale · {operations.outbox.failed} failed · {operations.outbox.processing} processing</p>
+              </article>
+              <article className="metric-card">
+                <span>Provider circuit</span>
+                <strong className="metric-card__state">{operations.provider.circuitState}</strong>
+                <p>Fails fast when the provider is unhealthy</p>
+              </article>
+            </div>
+          ) : (
+            <div className="operations-empty">
+              <p>Refresh to read payment, outbox, and provider state from the backend.</p>
+              <div>
+                <a href="http://localhost:8080/actuator/prometheus" target="_blank" rel="noreferrer">Prometheus metrics ↗</a>
+                <a href="http://localhost:16686" target="_blank" rel="noreferrer">Jaeger traces ↗</a>
+              </div>
+            </div>
+          )}
+          {operationsError && <p className="simulator-error" role="alert">{operationsError}</p>}
         </section>
 
         <section className="workbench" id="workbench" aria-labelledby="workbench-title">

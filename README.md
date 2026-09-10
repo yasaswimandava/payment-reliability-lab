@@ -26,6 +26,7 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 - acknowledged Kafka publication and idempotent event consumption;
 - idempotent provider authorization with HTTP timeouts and bounded retries;
 - circuit breaking, dead-letter routing, and controllable fault injection;
+- Prometheus metrics, OpenTelemetry traces, and correlated ECS JSON logs;
 - deterministic concurrency testing against real PostgreSQL;
 - clear HTTP semantics for first attempts, safe replays, conflicts, and errors;
 - hexagonal boundaries that keep domain logic independent of HTTP and PostgreSQL.
@@ -51,6 +52,8 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Bounded recovery | Explicit connection/read timeouts, three total attempts for transient failures, and a circuit breaker prevent retry storms. |
 | Dead-letter recovery | Exhausted or circuit-rejected authorization events are written to `payments.received.v1.dlt`; their payments remain honestly `RECEIVED`. |
 | Fault lab | The UI controls a synthetic provider with healthy, transient, decline, outage, and timeout modes and exposes attempt counters. |
+| Operations overview | A durable-state dashboard highlights payment backlog, authorization outcomes, unpublished events, and circuit state. |
+| Correlated telemetry | Prometheus metrics, OTLP traces in local Jaeger, ECS logs, and `X-Correlation-ID` connect system behavior across boundaries. |
 
 ## Architecture
 
@@ -79,6 +82,10 @@ flowchart LR
     Resilience --> Provider[Idempotent HTTP provider simulator]
     Authorization -->|exhausted failure| DLT[(payments.received.v1.dlt)]
     Authorization -->|AUTHORIZED or DECLINED| PaymentAdapter
+    Console --> Operations[Operations overview API]
+    Operations --> DB
+    Application -. metrics .-> Prometheus[Actuator / Prometheus]
+    Application -. OTLP traces .-> Jaeger[Jaeger trace UI]
 ```
 
 The domain and application layers do not depend on Spring MVC or PostgreSQL.
@@ -186,6 +193,8 @@ DLT retains evidence for a future reconciliation workflow.
 - Spring MVC, Bean Validation, JDBC, and Actuator
 - Spring for Apache Kafka
 - Resilience4j Retry and CircuitBreaker
+- Micrometer, Prometheus, and OpenTelemetry tracing
+- Jaeger 2 for local trace exploration
 - PostgreSQL 17
 - Redpanda 26.2 through the Kafka API
 - Flyway
@@ -223,9 +232,11 @@ docker compose up -d
 docker compose ps
 ```
 
-PostgreSQL listens on `127.0.0.1:55432` and Redpanda's Kafka API listens on
-`127.0.0.1:19092` by default. Both use named Docker volumes so local data survives
-container restarts.
+PostgreSQL listens on `127.0.0.1:55432`, Redpanda's Kafka API listens on
+`127.0.0.1:19092`, and Jaeger accepts OTLP/HTTP on `127.0.0.1:4318` with its trace
+UI at [http://localhost:16686](http://localhost:16686). PostgreSQL and Redpanda use
+named Docker volumes so local data survives container restarts; local Jaeger trace
+history is intentionally ephemeral.
 
 ### 3. Run the application
 
@@ -395,6 +406,23 @@ curl -X PUT http://localhost:8080/api/v1/simulator/provider \
 
 These endpoints are a local teaching surface, not a production administration API.
 
+### `GET /api/v1/operations/overview`
+
+Returns a point-in-time operator view derived from durable PostgreSQL state and the
+provider circuit breaker. It reports payment counts by status, unpublished,
+processing, and failed outbox counts, the oldest unpublished event timestamp, and
+the current circuit state. Work is considered stale after 30 seconds. `health`
+becomes `ATTENTION` when stale authorization or publication work exists, an outbox
+event has failed, or the provider circuit is open.
+
+For deeper signals, use:
+
+| Surface | Local URL | Operator question |
+| --- | --- | --- |
+| Prometheus exposition | [http://localhost:8080/actuator/prometheus](http://localhost:8080/actuator/prometheus) | What is the request, Kafka, JVM, and authorization rate or latency? |
+| Jaeger UI | [http://localhost:16686](http://localhost:16686) | Where did one observed operation spend time or fail? |
+| ECS console logs | Application stdout | Which trace, span, and correlation ID produced this event? |
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -415,6 +443,13 @@ These endpoints are a local teaching surface, not a production administration AP
 | `PAYMENT_PROVIDER_RETRY_WAIT` | `150ms` | Wait between provider retry attempts. |
 | `PAYMENT_PROVIDER_CONSUMER_GROUP` | `payment-provider-v1` | Authorization consumer group. |
 | `PAYMENT_PROVIDER_DLT` | `payments.received.v1.dlt` | Topic for exhausted authorization work. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP destination for spans. |
+| `OTEL_TRACES_EXPORT_ENABLED` | `true` | Enables local OTLP trace export. |
+| `TRACING_SAMPLING_PROBABILITY` | `1.0` | Local trace sample rate; lower this in production. |
+| `LOGGING_STRUCTURED_FORMAT` | `ecs` | Spring Boot structured console-log format. |
+| `DEPLOYMENT_ENVIRONMENT` | `local` | OpenTelemetry resource environment attribute. |
+| `JAEGER_UI_PORT` | `16686` | Local Jaeger browser UI port. |
+| `OTLP_HTTP_PORT` | `4318` | Local Jaeger OTLP/HTTP receiver port. |
 | `EVENTS_ENABLED` | `true` | Enables topic creation, relay scheduling, and consumption. |
 
 The Hikari connection pool is intentionally small for a local lab: maximum 10
@@ -444,6 +479,8 @@ The suite verifies:
 - retry selectivity, bounded attempt counts, and logical-operation circuit breaking;
 - simulator control modes and asynchronous authorization consumption;
 - dead-letter publication after an exhausted provider operation;
+- correlation ID propagation and durable operations-overview reporting;
+- low-cardinality authorization outcome and duration metrics;
 - application behavior through unit and HTTP integration tests;
 - every Flyway migration against an empty Testcontainers PostgreSQL database.
 
@@ -483,7 +520,7 @@ src/main/resources/
 
 src/test/                Unit and PostgreSQL-backed integration tests
 docs/decisions/          Architecture decision records
-compose.yml              Local PostgreSQL and Redpanda environment
+compose.yml              Local PostgreSQL, Redpanda, and Jaeger environment
 
 frontend/
 ├── src/App.tsx          Operations console and user workflows
@@ -521,6 +558,7 @@ frontend/
 - [ADR-003: Transactional outbox for durable event publication](docs/decisions/ADR-003-transactional-outbox.md)
 - [ADR-004: At-least-once Kafka delivery with idempotent consumers](docs/decisions/ADR-004-at-least-once-kafka-delivery.md)
 - [ADR-005: Bounded provider resilience with explicit dead-letter recovery](docs/decisions/ADR-005-bounded-provider-resilience.md)
+- [ADR-006: Operator-centered observability with correlated signals](docs/decisions/ADR-006-operator-centered-observability.md)
 
 ## Roadmap
 
@@ -535,7 +573,7 @@ The project is intentionally developed in reviewable milestones:
 - [x] Kafka event processing and consumer idempotency
 - [x] Payment-provider simulator
 - [x] Timeouts, bounded retries, circuit breaker, and dead-letter topic
-- [ ] OpenTelemetry traces, metrics, and structured logs
+- [x] OpenTelemetry traces, Prometheus metrics, structured logs, and operations dashboard
 - [ ] Integration, fault-injection, and load-test scenarios
 - [ ] CI pipeline and container image
 
