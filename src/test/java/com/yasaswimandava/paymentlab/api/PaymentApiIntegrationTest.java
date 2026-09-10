@@ -228,6 +228,7 @@ class PaymentApiIntegrationTest {
 
     @Test
     void claimsAnOutboxEventExclusivelyAndTracksRetryAndPublication() throws Exception {
+        jdbcTemplate.update("delete from outbox_events");
         CreatePaymentResult created = paymentOperations.create(
                 "order-relay-claim",
                 new CreatePaymentCommand(

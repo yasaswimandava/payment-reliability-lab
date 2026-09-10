@@ -3,6 +3,7 @@ package com.yasaswimandava.paymentlab.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.yasaswimandava.paymentlab.domain.OutboxMessage;
 import com.yasaswimandava.paymentlab.domain.Payment;
 import com.yasaswimandava.paymentlab.domain.PaymentReceivedEvent;
 import com.yasaswimandava.paymentlab.domain.PaymentStatus;
@@ -12,10 +13,12 @@ import com.yasaswimandava.paymentlab.port.PaymentRepository;
 import com.yasaswimandava.paymentlab.port.OutboxRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Currency;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -165,6 +168,29 @@ class PaymentApplicationServiceTest {
         @Override
         public void save(PaymentReceivedEvent event) {
             events.put(event.eventId(), event);
+        }
+
+        @Override
+        public List<OutboxMessage> claimAvailable(
+                String workerId,
+                int batchSize,
+                Instant claimAt,
+                Duration lockTimeout) {
+            throw new UnsupportedOperationException("Not required by this unit test");
+        }
+
+        @Override
+        public boolean markPublished(UUID eventId, String workerId, Instant publishedAt) {
+            throw new UnsupportedOperationException("Not required by this unit test");
+        }
+
+        @Override
+        public boolean reschedule(
+                UUID eventId,
+                String workerId,
+                Instant availableAt,
+                String error) {
+            throw new UnsupportedOperationException("Not required by this unit test");
         }
 
         int savedCount() {

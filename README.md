@@ -20,8 +20,9 @@ charge.
 Payment Reliability Lab makes that failure mode explicit and demonstrates:
 
 - merchant-scoped idempotency with request fingerprinting;
-- atomic persistence of a payment and its idempotency record;
+- atomic persistence of a payment, its idempotency record, and an outbox event;
 - database-enforced duplicate protection across service instances;
+- durable event staging with exclusive, recoverable relay claims;
 - deterministic concurrency testing against real PostgreSQL;
 - clear HTTP semantics for first attempts, safe replays, conflicts, and errors;
 - hexagonal boundaries that keep domain logic independent of HTTP and PostgreSQL.
@@ -39,6 +40,8 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Schema management | Flyway applies versioned database migrations at startup and during tests. |
 | Verification | Unit and integration tests run with JUnit 5, MockMvc, Testcontainers, and JaCoCo. |
 | Operations console | A responsive React and TypeScript UI demonstrates creation, replay, conflict, and lookup behavior through the real API. |
+| Transactional outbox | Every new payment stages one durable `PAYMENT_RECEIVED` event in the payment transaction; safe replays stage none. |
+| Relay ownership | PostgreSQL workers claim batches exclusively, recover expired leases, and owner-check publication or rescheduling. |
 
 ## Architecture
 
@@ -50,15 +53,20 @@ flowchart LR
     Application --> Transaction[Transaction boundary]
     Transaction --> PaymentPort[Payment repository port]
     Transaction --> KeyPort[Idempotency repository port]
+    Transaction --> OutboxPort[Outbox repository port]
     PaymentPort --> PaymentAdapter[PostgreSQL payment adapter]
     KeyPort --> KeyAdapter[PostgreSQL idempotency adapter]
+    OutboxPort --> OutboxAdapter[PostgreSQL outbox adapter]
     PaymentAdapter --> DB[(PostgreSQL)]
     KeyAdapter --> DB
+    OutboxAdapter --> DB
+    OutboxAdapter -. Phase 3 relay .-> Kafka[(Kafka)]
 ```
 
 The domain and application layers do not depend on Spring MVC or PostgreSQL.
 Repository ports keep persistence replaceable, the API adapter owns HTTP concerns,
-and a transaction decorator commits the payment and idempotency record as one unit.
+and a transaction decorator commits the payment, idempotency record, and outbox
+event as one unit.
 
 ### Idempotent request flow
 
@@ -71,7 +79,7 @@ sequenceDiagram
     C->>A: POST payment (merchant, key, payload)
     A->>D: Find (merchant, key)
     alt Key is new
-        A->>D: Insert payment + key in one transaction
+        A->>D: Insert payment + key + outbox event in one transaction
         D-->>A: Commit
         A-->>C: 201 Created, replayed=false
     else Same key and same fingerprint
@@ -88,8 +96,38 @@ winner. The losing transaction rolls back its provisional payment, retries once 
 a new transaction, and returns the committed payment as a replay.
 
 This is an exactly-once **business effect inside one PostgreSQL boundary**, not a
-claim of global exactly-once delivery. External provider calls and event publishing
-require additional patterns planned below.
+claim of global exactly-once delivery. Kafka publication is at-least-once and
+therefore requires consumer-side deduplication by event ID, introduced in Phase 3.
+
+### Outbox lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: payment transaction commits
+    PENDING --> PROCESSING: worker claims row
+    PROCESSING --> PUBLISHED: broker acknowledges event
+    PROCESSING --> PENDING: publication fails and is rescheduled
+    PROCESSING --> PROCESSING: expired lease is reclaimed
+```
+
+Workers claim ordered batches with `FOR UPDATE SKIP LOCKED`, which lets multiple
+instances make progress without claiming the same row. Publication and rescheduling
+are guarded by worker ownership. If a worker stops after claiming, another worker
+can recover the event after its lease expires.
+
+The stored event payload is deliberately small and contains only the stable data a
+consumer needs:
+
+```json
+{
+  "eventId": "f35714c7-e520-4260-aaf9-203680fa7403",
+  "paymentId": "7c02e8fe-9c21-4e13-81bc-b85185203b19",
+  "merchantId": "demo-merchant",
+  "amount": 42.50,
+  "currency": "USD",
+  "occurredAt": "2026-09-09T23:30:00Z"
+}
+```
 
 ## Technology stack
 
@@ -289,6 +327,8 @@ The suite verifies:
 - request validation and not-found behavior;
 - durable payment and idempotency persistence;
 - concurrent identical requests producing one stored payment;
+- atomic creation of exactly one outbox event for a new payment and none for a replay;
+- exclusive relay claims, lease recovery, rescheduling, and owner-checked publication;
 - application behavior through unit and HTTP integration tests;
 - every Flyway migration against an empty Testcontainers PostgreSQL database.
 
@@ -345,6 +385,8 @@ frontend/
 | Two instances race on the same new key | PostgreSQL selects one winner; the other transaction rolls back and replays the winner. |
 | Database write fails before commit | The transaction rolls back both records. |
 | Service restarts after commit | The durable idempotency record still resolves the retry. |
+| Service crashes after committing a payment | The event remains durable in the outbox for a relay worker to publish. |
+| Relay worker crashes after claiming an event | Another worker can reclaim it after the lease expires. |
 | PostgreSQL is unavailable | The request fails; resilience and operator-facing error mapping are future work. |
 | External provider accepts a charge but the response is lost | Not implemented yet; the provider boundary will require its own idempotency and reconciliation strategy. |
 
@@ -352,6 +394,7 @@ frontend/
 
 - [ADR-001: Merchant-scoped idempotency](docs/decisions/ADR-001-merchant-scoped-idempotency.md)
 - [ADR-002: Database-enforced concurrent idempotency](docs/decisions/ADR-002-database-enforced-concurrent-idempotency.md)
+- [ADR-003: Transactional outbox for durable event publication](docs/decisions/ADR-003-transactional-outbox.md)
 
 ## Roadmap
 
@@ -362,7 +405,7 @@ The project is intentionally developed in reviewable milestones:
 - [x] PostgreSQL persistence and Flyway migrations
 - [x] Atomic writes and deterministic concurrency verification
 - [x] React and TypeScript operations console
-- [ ] Transactional outbox
+- [x] Transactional outbox and exclusive relay claims
 - [ ] Kafka event processing and consumer idempotency
 - [ ] Payment-provider simulator
 - [ ] Timeouts, bounded retries, circuit breaker, and dead-letter queue
