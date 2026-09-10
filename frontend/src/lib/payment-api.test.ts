@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PaymentApiError, createPayment, getPayment } from './payment-api'
+import {
+  PaymentApiError,
+  configureProvider,
+  createPayment,
+  getPayment,
+  getProviderStatus,
+} from './payment-api'
 
 const payment = {
   id: '7c02e8fe-9c21-4e13-81bc-b85185203b19',
@@ -108,5 +114,28 @@ describe('payment API client', () => {
 
     await expect(getPayment(payment.id)).resolves.toEqual(payment)
     expect(fetchMock).toHaveBeenCalledWith(`/api/v1/payments/${payment.id}`)
+  })
+
+  it('reads and configures the provider simulator', async () => {
+    const healthy = {
+      mode: 'HEALTHY',
+      attempts: 0,
+      successfulAuthorizations: 0,
+    }
+    const unavailable = { ...healthy, mode: 'UNAVAILABLE' }
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(healthy), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(unavailable), { status: 200 }))
+
+    await expect(getProviderStatus()).resolves.toEqual(healthy)
+    await expect(configureProvider('UNAVAILABLE')).resolves.toEqual(unavailable)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/simulator/provider')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/simulator/provider', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'UNAVAILABLE' }),
+    })
   })
 })

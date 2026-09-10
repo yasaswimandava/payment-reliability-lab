@@ -93,4 +93,33 @@ describe('Payment Reliability Console', () => {
     expect(await screen.findByText('API connection unavailable')).toBeInTheDocument()
     expect(screen.getByText(/start the spring boot service/i)).toBeInTheDocument()
   })
+
+  it('lets an operator select and observe a provider failure mode', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          mode: 'TRANSIENT_THEN_SUCCESS',
+          attempts: 0,
+          successfulAuthorizations: 0,
+        }),
+        { status: 200 },
+      ),
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.selectOptions(
+      screen.getByLabelText(/provider behavior/i),
+      'TRANSIENT_THEN_SUCCESS',
+    )
+    await user.click(screen.getByRole('button', { name: /apply scenario/i }))
+
+    expect(await screen.findByText(/transient then success/i)).toBeInTheDocument()
+    expect(screen.getByText(/total attempts/i)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/simulator/provider', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'TRANSIENT_THEN_SUCCESS' }),
+    })
+  })
 })
