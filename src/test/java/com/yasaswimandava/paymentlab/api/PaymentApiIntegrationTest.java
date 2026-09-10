@@ -12,8 +12,10 @@ import com.yasaswimandava.paymentlab.application.CreatePaymentResult;
 import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import com.yasaswimandava.paymentlab.domain.Payment;
 import com.yasaswimandava.paymentlab.domain.OutboxMessage;
+import com.yasaswimandava.paymentlab.domain.PaymentReceivedEvent;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
 import com.yasaswimandava.paymentlab.port.OutboxRepository;
+import com.yasaswimandava.paymentlab.port.ProcessedPaymentEventRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -70,6 +72,9 @@ class PaymentApiIntegrationTest {
 
     @Autowired
     private OutboxRepository outboxRepository;
+
+    @Autowired
+    private ProcessedPaymentEventRepository processedPaymentEventRepository;
 
     @Test
     void createsAPaymentAndReplaysAnIdenticalRequest() throws Exception {
@@ -287,6 +292,41 @@ class PaymentApiIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void recordsOneConsumerBusinessEffectWhenKafkaRedeliversTheSameEvent() {
+        PaymentReceivedEvent event = new PaymentReceivedEvent(
+                UUID.fromString("8f9f867c-0b9c-42d8-a885-a6bd1a7da2ba"),
+                UUID.fromString("94d77c2f-e294-41e3-a4db-cee011848f5c"),
+                "merchant-consumer-test",
+                new BigDecimal("72.40"),
+                Currency.getInstance("USD"),
+                Instant.parse("2026-09-09T22:30:00Z"));
+
+        boolean first = processedPaymentEventRepository.recordIfFirst(
+                event, Instant.parse("2026-09-09T22:30:01Z"));
+        boolean duplicate = processedPaymentEventRepository.recordIfFirst(
+                event, Instant.parse("2026-09-09T22:30:02Z"));
+
+        Long processedCount = jdbcTemplate.queryForObject(
+                "select count(*) from processed_payment_events where event_id = ?",
+                Long.class,
+                event.eventId());
+        Long projectionCount = jdbcTemplate.queryForObject(
+                "select count(*) from payment_event_projection where payment_id = ?",
+                Long.class,
+                event.paymentId());
+        BigDecimal projectedAmount = jdbcTemplate.queryForObject(
+                "select amount from payment_event_projection where payment_id = ?",
+                BigDecimal.class,
+                event.paymentId());
+
+        org.assertj.core.api.Assertions.assertThat(first).isTrue();
+        org.assertj.core.api.Assertions.assertThat(duplicate).isFalse();
+        org.assertj.core.api.Assertions.assertThat(processedCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(projectionCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(projectedAmount).isEqualByComparingTo("72.40");
     }
 
     @Test
