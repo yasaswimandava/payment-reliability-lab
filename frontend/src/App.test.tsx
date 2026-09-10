@@ -9,6 +9,7 @@ const payment = {
   amount: 42.5,
   currency: 'USD',
   status: 'RECEIVED',
+  providerReference: null,
   createdAt: '2026-09-09T23:30:00Z',
   replayed: false,
 }
@@ -21,7 +22,7 @@ describe('Payment Reliability Console', () => {
       screen.getByRole('heading', { name: /make every retry safe/i }),
     ).toBeInTheDocument()
     expect(screen.getByText(/exactly one business effect/i)).toBeInTheDocument()
-    expect(screen.getByText(/phase 1.5 · console online/i)).toBeInTheDocument()
+    expect(screen.getByText(/phase 4 · failure recovery online/i)).toBeInTheDocument()
   })
 
   it('creates a payment and shows its operational result', async () => {

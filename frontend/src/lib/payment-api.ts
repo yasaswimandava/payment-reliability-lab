@@ -4,8 +4,22 @@ export interface Payment {
   amount: number
   currency: string
   status: string
+  providerReference: string | null
   createdAt: string
   replayed: boolean
+}
+
+export type ProviderMode =
+  | 'HEALTHY'
+  | 'TRANSIENT_THEN_SUCCESS'
+  | 'DECLINE'
+  | 'UNAVAILABLE'
+  | 'TIMEOUT'
+
+export interface ProviderSimulatorStatus {
+  mode: ProviderMode
+  attempts: number
+  successfulAuthorizations: number
 }
 
 export interface CreatePaymentInput {
@@ -85,4 +99,30 @@ export async function createPayment(
 export async function getPayment(paymentId: string): Promise<Payment> {
   const response = await fetch(`/api/v1/payments/${encodeURIComponent(paymentId)}`)
   return requirePayment(response)
+}
+
+async function requireProviderStatus(
+  response: Response,
+): Promise<ProviderSimulatorStatus> {
+  if (!response.ok) {
+    throw await readProblem(response)
+  }
+
+  return (await response.json()) as ProviderSimulatorStatus
+}
+
+export async function getProviderStatus(): Promise<ProviderSimulatorStatus> {
+  const response = await fetch('/api/v1/simulator/provider')
+  return requireProviderStatus(response)
+}
+
+export async function configureProvider(
+  mode: ProviderMode,
+): Promise<ProviderSimulatorStatus> {
+  const response = await fetch('/api/v1/simulator/provider', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  })
+  return requireProviderStatus(response)
 }

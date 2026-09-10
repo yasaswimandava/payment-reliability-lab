@@ -19,9 +19,16 @@ public final class PostgresPaymentRepository implements PaymentRepository {
             values (?, ?, ?, ?, ?, ?)
             """;
     private static final String FIND_PAYMENT = """
-            select id, merchant_id, amount, currency, status, created_at
+            select id, merchant_id, amount, currency, status, provider_reference, created_at
             from payments
             where id = ?
+            """;
+    private static final String COMPLETE_AUTHORIZATION = """
+            update payments
+            set status = ?,
+                provider_reference = ?,
+                updated_at = current_timestamp
+            where id = ? and status = ?
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -50,6 +57,20 @@ public final class PostgresPaymentRepository implements PaymentRepository {
                 .findFirst();
     }
 
+    @Override
+    public boolean completeAuthorization(
+            UUID paymentId,
+            PaymentStatus expectedStatus,
+            PaymentStatus newStatus,
+            String providerReference) {
+        return jdbcTemplate.update(
+                COMPLETE_AUTHORIZATION,
+                newStatus.name(),
+                providerReference,
+                paymentId,
+                expectedStatus.name()) == 1;
+    }
+
     private Payment mapPayment(ResultSet resultSet, int rowNumber) throws SQLException {
         return new Payment(
                 resultSet.getObject("id", UUID.class),
@@ -57,6 +78,7 @@ public final class PostgresPaymentRepository implements PaymentRepository {
                 resultSet.getBigDecimal("amount"),
                 Currency.getInstance(resultSet.getString("currency")),
                 PaymentStatus.valueOf(resultSet.getString("status")),
+                resultSet.getString("provider_reference"),
                 resultSet.getObject("created_at", OffsetDateTime.class).toInstant());
     }
 }

@@ -12,6 +12,7 @@ public record PaymentResponse(
         BigDecimal amount,
         String currency,
         String status,
+        String providerReference,
         Instant createdAt,
         boolean replayed) {
 
@@ -30,6 +31,7 @@ public record PaymentResponse(
                 payment.amount(),
                 payment.currency().getCurrencyCode(),
                 payment.status().name(),
+                payment.providerReference(),
                 payment.createdAt(),
                 replayed);
     }

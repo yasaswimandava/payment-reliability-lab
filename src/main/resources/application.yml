@@ -41,6 +41,18 @@ payment:
     batch-size: ${PAYMENT_EVENTS_BATCH_SIZE:25}
     relay-interval: ${PAYMENT_EVENTS_RELAY_INTERVAL:500ms}
     relay-initial-delay: ${PAYMENT_EVENTS_RELAY_INITIAL_DELAY:1s}
+  provider:
+    base-url: ${PAYMENT_PROVIDER_BASE_URL:http://localhost:8080}
+    connect-timeout: ${PAYMENT_PROVIDER_CONNECT_TIMEOUT:300ms}
+    read-timeout: ${PAYMENT_PROVIDER_READ_TIMEOUT:750ms}
+    max-attempts: ${PAYMENT_PROVIDER_MAX_ATTEMPTS:3}
+    retry-wait: ${PAYMENT_PROVIDER_RETRY_WAIT:150ms}
+    failure-rate-threshold: ${PAYMENT_PROVIDER_FAILURE_RATE_THRESHOLD:50}
+    minimum-calls: ${PAYMENT_PROVIDER_MINIMUM_CALLS:4}
+    sliding-window-size: ${PAYMENT_PROVIDER_SLIDING_WINDOW_SIZE:4}
+    open-state-wait: ${PAYMENT_PROVIDER_OPEN_STATE_WAIT:10s}
+    consumer-group: ${PAYMENT_PROVIDER_CONSUMER_GROUP:payment-provider-v1}
+    dead-letter-topic: ${PAYMENT_PROVIDER_DLT:payments.received.v1.dlt}
 
 management:
   endpoints:

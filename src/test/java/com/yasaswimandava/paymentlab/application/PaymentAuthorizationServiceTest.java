@@ -89,6 +89,7 @@ class PaymentAuthorizationServiceTest {
                 new BigDecimal("49.25"),
                 Currency.getInstance("USD"),
                 status,
+                status == PaymentStatus.RECEIVED ? null : "provider-existing",
                 Instant.parse("2026-09-09T22:00:00Z"));
     }
 

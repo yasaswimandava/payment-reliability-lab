@@ -77,6 +77,7 @@ public final class PaymentApplicationService implements PaymentOperations {
                 command.amount(),
                 command.currency(),
                 PaymentStatus.RECEIVED,
+                null,
                 clock.instant());
         Payment savedPayment = paymentRepository.save(payment);
         idempotencyRepository.save(new IdempotencyRecord(

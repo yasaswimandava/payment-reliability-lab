@@ -32,4 +32,5 @@ safe. Invalid payloads fail processing rather than being silently acknowledged.
 - Consumer business effects are protected independently from Kafka offsets.
 - A consumer restart or rebalance can redeliver records without duplicating state.
 - Event IDs are part of the public event contract and must remain stable.
-- Schema compatibility and poison-event dead-letter handling remain explicit work.
+- Schema compatibility remains explicit work. Provider authorization failures and
+  poison messages are routed to a dead-letter topic as defined by ADR-005.

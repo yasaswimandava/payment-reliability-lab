@@ -1,9 +1,13 @@
 import { type FormEvent, useState } from 'react'
 import {
   PaymentApiError,
+  configureProvider,
   createPayment,
   getPayment,
+  getProviderStatus,
   type Payment,
+  type ProviderMode,
+  type ProviderSimulatorStatus,
 } from './lib/payment-api'
 
 type ResultKind = 'created' | 'replayed' | 'located'
@@ -24,6 +28,30 @@ const initialPaymentForm = {
   idempotencyKey: 'order-1042',
   amount: '42.50',
   currency: 'USD',
+}
+
+const providerScenarios: Array<{
+  mode: ProviderMode
+  label: string
+  description: string
+}> = [
+  { mode: 'HEALTHY', label: 'Healthy', description: 'Approve on the first attempt.' },
+  {
+    mode: 'TRANSIENT_THEN_SUCCESS',
+    label: 'Retry twice, then approve',
+    description: 'Return two retriable 503 responses before recovering.',
+  },
+  { mode: 'DECLINE', label: 'Decline', description: 'Return a valid business decline.' },
+  {
+    mode: 'UNAVAILABLE',
+    label: 'Unavailable',
+    description: 'Exhaust the retry budget and route the event to the DLT.',
+  },
+  { mode: 'TIMEOUT', label: 'Timeout', description: 'Respond after the client deadline.' },
+]
+
+function formatProviderMode(mode: ProviderMode): string {
+  return mode.toLowerCase().replaceAll('_', ' ')
 }
 
 function presentError(error: unknown): VisibleError {
@@ -102,6 +130,12 @@ function PaymentResult({ result }: { result: VisibleResult }) {
           <dt>Committed at</dt>
           <dd>{formatTimestamp(payment.createdAt)}</dd>
         </div>
+        {payment.providerReference && (
+          <div className="payment-readout__wide">
+            <dt>Provider reference</dt>
+            <dd>{payment.providerReference}</dd>
+          </div>
+        )}
       </dl>
     </div>
   )
@@ -132,6 +166,10 @@ export default function App() {
   const [result, setResult] = useState<VisibleResult | null>(null)
   const [error, setError] = useState<VisibleError | null>(null)
   const [pendingAction, setPendingAction] = useState<'create' | 'lookup' | null>(null)
+  const [providerMode, setProviderMode] = useState<ProviderMode>('HEALTHY')
+  const [providerStatus, setProviderStatus] = useState<ProviderSimulatorStatus | null>(null)
+  const [providerPending, setProviderPending] = useState(false)
+  const [providerError, setProviderError] = useState<string | null>(null)
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -169,6 +207,33 @@ export default function App() {
     }
   }
 
+  async function handleProviderConfiguration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setProviderPending(true)
+    setProviderError(null)
+
+    try {
+      setProviderStatus(await configureProvider(providerMode))
+    } catch (requestError) {
+      setProviderError(presentError(requestError).detail)
+    } finally {
+      setProviderPending(false)
+    }
+  }
+
+  async function handleProviderRefresh() {
+    setProviderPending(true)
+    setProviderError(null)
+
+    try {
+      setProviderStatus(await getProviderStatus())
+    } catch (requestError) {
+      setProviderError(presentError(requestError).detail)
+    } finally {
+      setProviderPending(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -181,6 +246,7 @@ export default function App() {
         </a>
         <nav aria-label="Primary navigation">
           <a href="#workbench">Workbench</a>
+          <a href="#simulator">Fault lab</a>
           <a href="#guarantees">Guarantees</a>
           <a href="#roadmap">Roadmap</a>
         </nav>
@@ -210,10 +276,10 @@ export default function App() {
 
           <div className="system-signal" aria-label="Current project phase">
             <div className="signal-orbit" aria-hidden="true">
-              <span className="signal-core">1.5</span>
+              <span className="signal-core">04</span>
             </div>
-            <p>Phase 1.5 · Console online</p>
-            <span>React → Spring Boot → PostgreSQL</span>
+            <p>Phase 4 · Failure recovery online</p>
+            <span>React → Spring Boot → Kafka → Provider</span>
           </div>
         </section>
 
@@ -334,6 +400,66 @@ export default function App() {
           </div>
         </section>
 
+        <section className="simulator" id="simulator" aria-labelledby="simulator-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow"><span>Fault injection</span> / provider simulator</p>
+              <h2 id="simulator-title">Break it on purpose.</h2>
+            </div>
+            <p>
+              Select a synthetic provider behavior, then create a payment above. The
+              backend applies strict timeouts, bounded retries, circuit breaking, and
+              dead-letter routing without exposing a customer to duplicate effects.
+            </p>
+          </div>
+
+          <div className="simulator-console">
+            <form className="simulator-control" onSubmit={handleProviderConfiguration}>
+              <label htmlFor="provider-mode">Provider behavior</label>
+              <select
+                id="provider-mode"
+                value={providerMode}
+                onChange={(event) => setProviderMode(event.target.value as ProviderMode)}
+              >
+                {providerScenarios.map((scenario) => (
+                  <option key={scenario.mode} value={scenario.mode}>{scenario.label}</option>
+                ))}
+              </select>
+              <p>
+                {providerScenarios.find((scenario) => scenario.mode === providerMode)?.description}
+              </p>
+              <button className="primary-button" type="submit" disabled={providerPending}>
+                {providerPending ? 'Applying…' : 'Apply scenario'}
+                <span aria-hidden="true">→</span>
+              </button>
+            </form>
+
+            <div className="simulator-status" aria-live="polite">
+              <div className="simulator-status__heading">
+                <div>
+                  <p className="micro-label">Provider state</p>
+                  <h3>{providerStatus ? 'Scenario armed' : 'Status not loaded'}</h3>
+                </div>
+                <button type="button" onClick={handleProviderRefresh} disabled={providerPending}>
+                  Refresh
+                </button>
+              </div>
+              {providerStatus ? (
+                <dl>
+                  <div><dt>Active mode</dt><dd>{formatProviderMode(providerStatus.mode)}</dd></div>
+                  <div><dt>Total attempts</dt><dd>{providerStatus.attempts}</dd></div>
+                  <div><dt>Completed</dt><dd>{providerStatus.successfulAuthorizations}</dd></div>
+                </dl>
+              ) : (
+                <p className="simulator-placeholder">
+                  Apply a scenario or refresh to read the running simulator.
+                </p>
+              )}
+              {providerError && <p className="simulator-error" role="alert">{providerError}</p>}
+            </div>
+          </div>
+        </section>
+
         <section className="guarantees" id="guarantees" aria-labelledby="guarantees-title">
           <div className="guarantee-intro">
             <p className="eyebrow"><span>Under pressure</span> / system behavior</p>
@@ -353,10 +479,10 @@ export default function App() {
             <h2 id="roadmap-title">Reliability grows in layers.</h2>
           </div>
           <div className="roadmap-track">
-            <article className="roadmap-item roadmap-item--active"><span>Now</span><h3>Interactive foundation</h3><p>Idempotency, atomic persistence, and an operations console.</p></article>
-            <article className="roadmap-item"><span>Next</span><h3>Event integrity</h3><p>Transactional outbox, Kafka, and idempotent consumers.</p></article>
-            <article className="roadmap-item"><span>Then</span><h3>Failure recovery</h3><p>Provider faults, bounded retries, circuit breaking, and DLQ operations.</p></article>
-            <article className="roadmap-item"><span>Finally</span><h3>Production evidence</h3><p>Telemetry, load tests, CI, and trace-driven demonstrations.</p></article>
+            <article className="roadmap-item roadmap-item--complete"><span>Complete</span><h3>Interactive foundation</h3><p>Idempotency, atomic persistence, and an operations console.</p></article>
+            <article className="roadmap-item roadmap-item--complete"><span>Complete</span><h3>Event integrity</h3><p>Transactional outbox, Kafka, and idempotent consumers.</p></article>
+            <article className="roadmap-item roadmap-item--active"><span>Now</span><h3>Failure recovery</h3><p>Provider faults, bounded retries, circuit breaking, and DLT operations.</p></article>
+            <article className="roadmap-item"><span>Next</span><h3>Production evidence</h3><p>Telemetry, load tests, CI, and trace-driven demonstrations.</p></article>
           </div>
         </section>
       </main>

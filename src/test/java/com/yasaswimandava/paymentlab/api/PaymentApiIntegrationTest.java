@@ -415,6 +415,16 @@ class PaymentApiIntegrationTest {
             return delegate.findById(paymentId);
         }
 
+        @Override
+        public boolean completeAuthorization(
+                UUID paymentId,
+                com.yasaswimandava.paymentlab.domain.PaymentStatus expectedStatus,
+                com.yasaswimandava.paymentlab.domain.PaymentStatus newStatus,
+                String providerReference) {
+            return delegate.completeAuthorization(
+                    paymentId, expectedStatus, newStatus, providerReference);
+        }
+
         private void awaitConcurrentSave() {
             try {
                 saveBarrier.await(5, TimeUnit.SECONDS);

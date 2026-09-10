@@ -331,6 +331,7 @@ main {
 }
 
 .workbench,
+.simulator,
 .guarantees,
 .roadmap {
   padding: 130px 0;
@@ -677,6 +678,151 @@ main {
   line-height: 1.6;
 }
 
+.simulator {
+  border-top: 1px solid var(--line);
+}
+
+.simulator-console {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.8fr) minmax(420px, 1.2fr);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+}
+
+.simulator-control,
+.simulator-status {
+  min-height: 320px;
+  padding: 42px;
+}
+
+.simulator-control {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+
+.simulator-control label {
+  margin-bottom: 8px;
+  color: #cbd8d1;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.simulator-control select {
+  width: 100%;
+  height: 50px;
+  padding: 0 14px;
+  color: var(--text);
+  background: rgba(3, 10, 7, 0.42);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.simulator-control select:focus {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(134, 240, 189, 0.08);
+}
+
+.simulator-control p,
+.simulator-placeholder,
+.simulator-error {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+.simulator-control p {
+  min-height: 54px;
+  margin: 16px 0 28px;
+}
+
+.simulator-control .primary-button {
+  margin-top: auto;
+}
+
+.simulator-status {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background:
+    linear-gradient(rgba(134, 240, 189, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(134, 240, 189, 0.025) 1px, transparent 1px),
+    #091410;
+  background-size: 28px 28px;
+}
+
+.simulator-status__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.simulator-status__heading h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.simulator-status__heading button {
+  padding: 8px 0;
+  color: var(--mint);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simulator-status__heading button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.simulator-status dl {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  margin: 60px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.simulator-status dl div {
+  min-width: 0;
+  padding: 22px 18px 0 0;
+}
+
+.simulator-status dt {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.simulator-status dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  text-transform: uppercase;
+}
+
+.simulator-placeholder {
+  margin: 60px 0 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.simulator-error {
+  margin: 20px 0 0;
+  color: var(--error);
+}
+
 .guarantees {
   display: grid;
   grid-template-columns: minmax(280px, 0.75fr) minmax(500px, 1.25fr);
@@ -766,6 +912,11 @@ main {
   box-shadow: 0 0 18px var(--mint);
 }
 
+.roadmap-item--complete::before {
+  background: var(--mint-deep);
+  border-color: var(--mint-deep);
+}
+
 .roadmap-item > span {
   display: block;
   margin-bottom: 40px;
@@ -839,6 +990,15 @@ footer span {
 
   .console-output {
     min-height: 470px;
+  }
+
+  .simulator-console {
+    grid-template-columns: 1fr;
+  }
+
+  .simulator-control {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .guarantees {
@@ -918,6 +1078,7 @@ footer span {
   }
 
   .workbench,
+  .simulator,
   .guarantees,
   .roadmap {
     padding: 90px 0;
@@ -938,6 +1099,32 @@ footer span {
 
   .console-output {
     min-height: 430px;
+  }
+
+  .simulator-console {
+    grid-template-columns: 1fr;
+  }
+
+  .simulator-control {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .simulator-control,
+  .simulator-status {
+    min-height: 300px;
+    padding: 28px 20px;
+  }
+
+  .simulator-status dl {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    margin-top: 38px;
+  }
+
+  .simulator-status dl div {
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
   }
 
   .result-state {

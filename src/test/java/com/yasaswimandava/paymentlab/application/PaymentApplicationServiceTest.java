@@ -137,6 +137,15 @@ class PaymentApplicationServiceTest {
             return Optional.ofNullable(payments.get(paymentId));
         }
 
+        @Override
+        public boolean completeAuthorization(
+                UUID paymentId,
+                PaymentStatus expectedStatus,
+                PaymentStatus newStatus,
+                String providerReference) {
+            throw new UnsupportedOperationException("Not required by this unit test");
+        }
+
         int savedCount() {
             return payments.size();
         }

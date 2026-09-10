@@ -12,6 +12,7 @@ public record Payment(
         BigDecimal amount,
         Currency currency,
         PaymentStatus status,
+        String providerReference,
         Instant createdAt) {
 
     public Payment {
@@ -23,4 +24,3 @@ public record Payment(
         Objects.requireNonNull(createdAt, "createdAt must not be null");
     }
 }
-

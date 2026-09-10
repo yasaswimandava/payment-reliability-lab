@@ -13,6 +13,7 @@ const payment = {
   amount: 42.5,
   currency: 'USD',
   status: 'RECEIVED',
+  providerReference: null,
   createdAt: '2026-09-09T23:30:00Z',
   replayed: false,
 }

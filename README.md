@@ -24,6 +24,8 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 - database-enforced duplicate protection across service instances;
 - durable event staging with exclusive, recoverable relay claims;
 - acknowledged Kafka publication and idempotent event consumption;
+- idempotent provider authorization with HTTP timeouts and bounded retries;
+- circuit breaking, dead-letter routing, and controllable fault injection;
 - deterministic concurrency testing against real PostgreSQL;
 - clear HTTP semantics for first attempts, safe replays, conflicts, and errors;
 - hexagonal boundaries that keep domain logic independent of HTTP and PostgreSQL.
@@ -45,6 +47,10 @@ Payment Reliability Lab makes that failure mode explicit and demonstrates:
 | Relay ownership | PostgreSQL workers claim batches exclusively, recover expired leases, and owner-check publication or rescheduling. |
 | Kafka event pipeline | A scheduled relay publishes to a three-partition topic only after broker acknowledgment, then marks the outbox row published. |
 | Idempotent consumer | A Kafka consumer records each event ID and creates a queryable payment projection atomically; redelivery becomes a no-op. |
+| Provider authorization | A separate consumer calls an HTTP provider boundary with the payment UUID as its stable idempotency key. |
+| Bounded recovery | Explicit connection/read timeouts, three total attempts for transient failures, and a circuit breaker prevent retry storms. |
+| Dead-letter recovery | Exhausted or circuit-rejected authorization events are written to `payments.received.v1.dlt`; their payments remain honestly `RECEIVED`. |
+| Fault lab | The UI controls a synthetic provider with healthy, transient, decline, outage, and timeout modes and exposes attempt counters. |
 
 ## Architecture
 
@@ -68,6 +74,11 @@ flowchart LR
     Kafka --> Consumer[Payment event consumer]
     Consumer --> Ledger[Processed-event ledger + projection]
     Ledger --> DB
+    Kafka --> Authorization[Authorization consumer]
+    Authorization --> Resilience[Timeout + retry + circuit breaker]
+    Resilience --> Provider[Idempotent HTTP provider simulator]
+    Authorization -->|exhausted failure| DLT[(payments.received.v1.dlt)]
+    Authorization -->|AUTHORIZED or DECLINED| PaymentAdapter
 ```
 
 The domain and application layers do not depend on Spring MVC or PostgreSQL.
@@ -136,12 +147,45 @@ consumer needs:
 }
 ```
 
+### Provider authorization flow
+
+```mermaid
+sequenceDiagram
+    participant K as Kafka
+    participant A as Authorization consumer
+    participant R as Resilience policy
+    participant P as Provider
+    participant D as PostgreSQL
+    participant X as Dead-letter topic
+
+    K->>A: PAYMENT_RECEIVED
+    A->>R: authorize(payment ID)
+    loop At most 3 attempts for transient failures
+        R->>P: POST authorization + Idempotency-Key
+        P-->>R: approval, decline, 5xx, or timeout
+    end
+    alt Provider returns a final decision
+        R-->>A: APPROVED or DECLINED
+        A->>D: Conditional state transition
+    else Retry budget exhausted or circuit open
+        A-->>X: Original event + failure headers
+        Note over D: Payment remains RECEIVED
+    end
+```
+
+The circuit breaker wraps the complete retry operation. Four failed logical
+authorizations can open it; individual attempts do not inflate the breaker window.
+A valid decline is never retried. A timeout is deliberately treated as ambiguous:
+the stable provider idempotency key prevents a second provider effect, while the
+DLT retains evidence for a future reconciliation workflow.
+
 ## Technology stack
 
 - Java 17
 - Spring Boot 3.5
 - Spring MVC, Bean Validation, JDBC, and Actuator
 - Spring for Apache Kafka
+- Resilience4j Retry and CircuitBreaker
 - PostgreSQL 17
 - Redpanda 26.2 through the Kafka API
 - Flyway
@@ -221,6 +265,9 @@ The console is designed to make the reliability contract visible:
 2. Send it again without changing the key or payload to observe a safe replay.
 3. Change the amount but retain the key to observe an intentional `409 Conflict`.
 4. Use the returned UUID to retrieve the durable payment record.
+5. In **Fault lab**, choose a provider behavior and apply the scenario.
+6. Create a payment, then retrieve it again to observe `AUTHORIZED`, `DECLINED`,
+   or a safely unresolved `RECEIVED` state.
 
 Within about one relay interval, the payment's outbox row becomes `PUBLISHED` and
 the consumer creates one row in `payment_event_projection`. Inspect the topic
@@ -229,6 +276,13 @@ directly with:
 ```bash
 docker compose exec redpanda \
   rpk topic consume payments.received.v1 --num 1
+```
+
+Inspect one exhausted authorization event with:
+
+```bash
+docker compose exec redpanda \
+  rpk topic consume payments.received.v1.dlt --num 1 --format '%v\n'
 ```
 
 ## Try the reliability behavior
@@ -252,6 +306,7 @@ The first request returns `201 Created` and `Idempotency-Replayed: false`:
   "amount": 42.50,
   "currency": "USD",
   "status": "RECEIVED",
+  "providerReference": null,
   "createdAt": "2026-09-09T23:30:00Z",
   "replayed": false
 }
@@ -318,6 +373,28 @@ Responses:
 | `200 OK` | The payment was found. |
 | `404 Not Found` | No payment exists for the supplied UUID. |
 
+### Provider fault-lab API
+
+`GET /api/v1/simulator/provider` returns the active mode, total HTTP attempts, and
+successful authorization count. `PUT /api/v1/simulator/provider` resets the
+counters and activates one of these synthetic modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `HEALTHY` | Approves on the first attempt. |
+| `TRANSIENT_THEN_SUCCESS` | Fails the first two calls for each payment, then approves. |
+| `DECLINE` | Returns a final business decline without retrying. |
+| `UNAVAILABLE` | Returns `503` until the retry budget is exhausted. |
+| `TIMEOUT` | Responds after the configured client deadline to demonstrate ambiguity. |
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/simulator/provider \
+  -H 'Content-Type: application/json' \
+  --data '{"mode":"TRANSIENT_THEN_SUCCESS"}'
+```
+
+These endpoints are a local teaching surface, not a production administration API.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -331,6 +408,13 @@ Responses:
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Broker addresses used by the application. |
 | `PAYMENT_EVENTS_TOPIC` | `payments.received.v1` | Versioned payment event topic. |
 | `PAYMENT_EVENTS_CONSUMER_GROUP` | `payment-projection-v1` | Idempotent projection consumer group. |
+| `PAYMENT_PROVIDER_BASE_URL` | `http://localhost:8080` | HTTP provider boundary; defaults to the local simulator. |
+| `PAYMENT_PROVIDER_CONNECT_TIMEOUT` | `300ms` | Maximum time to establish a provider connection. |
+| `PAYMENT_PROVIDER_READ_TIMEOUT` | `750ms` | Maximum time to wait for a provider response. |
+| `PAYMENT_PROVIDER_MAX_ATTEMPTS` | `3` | Total attempts for a retriable provider call. |
+| `PAYMENT_PROVIDER_RETRY_WAIT` | `150ms` | Wait between provider retry attempts. |
+| `PAYMENT_PROVIDER_CONSUMER_GROUP` | `payment-provider-v1` | Authorization consumer group. |
+| `PAYMENT_PROVIDER_DLT` | `payments.received.v1.dlt` | Topic for exhausted authorization work. |
 | `EVENTS_ENABLED` | `true` | Enables topic creation, relay scheduling, and consumption. |
 
 The Hikari connection pool is intentionally small for a local lab: maximum 10
@@ -356,6 +440,10 @@ The suite verifies:
 - Kafka record construction, bounded acknowledgments, and failure propagation;
 - consumer payload validation and duplicate delivery handling;
 - atomic processed-event ledger and payment projection persistence;
+- provider request idempotency, HTTP failure classification, and state transitions;
+- retry selectivity, bounded attempt counts, and logical-operation circuit breaking;
+- simulator control modes and asynchronous authorization consumption;
+- dead-letter publication after an exhausted provider operation;
 - application behavior through unit and HTTP integration tests;
 - every Flyway migration against an empty Testcontainers PostgreSQL database.
 
@@ -386,6 +474,7 @@ src/main/java/com/yasaswimandava/paymentlab/
 ├── port/                Persistence interfaces
 ├── adapter/postgres/    JDBC repositories and transaction boundary
 ├── messaging/           Kafka publisher, listener, and scheduled outbox relay
+├── provider/            HTTP provider adapter, resilience policy, and fault simulator
 └── config/              Typed configuration and dependency wiring
 
 src/main/resources/
@@ -418,8 +507,12 @@ frontend/
 | Kafka accepts an event but the relay stops before updating PostgreSQL | The event may be published again; the consumer event ledger makes the duplicate a no-op. |
 | Kafka is unavailable or does not acknowledge in time | The relay reschedules the outbox event with bounded exponential backoff. |
 | Consumer restarts after applying its effect | Kafka may redeliver; the stable event ID prevents a second projection effect. |
+| Provider returns a temporary `5xx` | Retries only that logical payment, up to three total attempts, using the same provider idempotency key. |
+| Provider returns a valid decline | Persists `DECLINED` immediately; no retry is attempted. |
+| Provider remains unavailable | Publishes the original event to the DLT and leaves the payment `RECEIVED` for reconciliation. |
+| Repeated provider operations fail | The circuit opens after the configured logical-operation failure window and fails fast. |
+| Provider processes a request but its response times out | Provider idempotency prevents a second effect; local state remains unresolved and the durable DLT event requires reconciliation. |
 | PostgreSQL is unavailable | The request fails; resilience and operator-facing error mapping are future work. |
-| External provider accepts a charge but the response is lost | Not implemented yet; the provider boundary will require its own idempotency and reconciliation strategy. |
 
 ## Design decisions
 
@@ -427,6 +520,7 @@ frontend/
 - [ADR-002: Database-enforced concurrent idempotency](docs/decisions/ADR-002-database-enforced-concurrent-idempotency.md)
 - [ADR-003: Transactional outbox for durable event publication](docs/decisions/ADR-003-transactional-outbox.md)
 - [ADR-004: At-least-once Kafka delivery with idempotent consumers](docs/decisions/ADR-004-at-least-once-kafka-delivery.md)
+- [ADR-005: Bounded provider resilience with explicit dead-letter recovery](docs/decisions/ADR-005-bounded-provider-resilience.md)
 
 ## Roadmap
 
@@ -439,8 +533,8 @@ The project is intentionally developed in reviewable milestones:
 - [x] React and TypeScript operations console
 - [x] Transactional outbox and exclusive relay claims
 - [x] Kafka event processing and consumer idempotency
-- [ ] Payment-provider simulator
-- [ ] Timeouts, bounded retries, circuit breaker, and dead-letter queue
+- [x] Payment-provider simulator
+- [x] Timeouts, bounded retries, circuit breaker, and dead-letter topic
 - [ ] OpenTelemetry traces, metrics, and structured logs
 - [ ] Integration, fault-injection, and load-test scenarios
 - [ ] CI pipeline and container image
