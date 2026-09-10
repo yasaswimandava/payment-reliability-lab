@@ -11,8 +11,12 @@ import com.yasaswimandava.paymentlab.application.CreatePaymentCommand;
 import com.yasaswimandava.paymentlab.application.CreatePaymentResult;
 import com.yasaswimandava.paymentlab.application.PaymentOperations;
 import com.yasaswimandava.paymentlab.domain.Payment;
+import com.yasaswimandava.paymentlab.domain.OutboxMessage;
 import com.yasaswimandava.paymentlab.port.PaymentRepository;
+import com.yasaswimandava.paymentlab.port.OutboxRepository;
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
@@ -63,6 +67,9 @@ class PaymentApiIntegrationTest {
 
     @Autowired
     private PaymentOperations paymentOperations;
+
+    @Autowired
+    private OutboxRepository outboxRepository;
 
     @Test
     void createsAPaymentAndReplaysAnIdenticalRequest() throws Exception {
@@ -217,6 +224,68 @@ class PaymentApiIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(eventCount).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(eventType).isEqualTo("PAYMENT_RECEIVED");
         org.assertj.core.api.Assertions.assertThat(payloadPaymentId).isEqualTo(paymentId);
+    }
+
+    @Test
+    void claimsAnOutboxEventExclusivelyAndTracksRetryAndPublication() throws Exception {
+        CreatePaymentResult created = paymentOperations.create(
+                "order-relay-claim",
+                new CreatePaymentCommand(
+                        "merchant-relay-test",
+                        new BigDecimal("61.25"),
+                        Currency.getInstance("USD")));
+        Instant firstClaimAt = Instant.now().plusSeconds(5);
+        CyclicBarrier claimBarrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<List<OutboxMessage>>> claims = List.of(
+                    executor.submit(() -> {
+                        claimBarrier.await(5, TimeUnit.SECONDS);
+                        return outboxRepository.claimAvailable(
+                                "relay-a", 10, firstClaimAt, Duration.ofMinutes(1));
+                    }),
+                    executor.submit(() -> {
+                        claimBarrier.await(5, TimeUnit.SECONDS);
+                        return outboxRepository.claimAvailable(
+                                "relay-b", 10, firstClaimAt, Duration.ofMinutes(1));
+                    }));
+
+            List<OutboxMessage> claimed = java.util.stream.Stream.concat(
+                            claims.get(0).get(10, TimeUnit.SECONDS).stream(),
+                            claims.get(1).get(10, TimeUnit.SECONDS).stream())
+                    .toList();
+
+            org.assertj.core.api.Assertions.assertThat(claimed).hasSize(1);
+            OutboxMessage message = claimed.get(0);
+            org.assertj.core.api.Assertions.assertThat(message.aggregateId())
+                    .isEqualTo(created.payment().id());
+            org.assertj.core.api.Assertions.assertThat(message.attemptCount()).isEqualTo(1);
+
+            Instant retryAt = firstClaimAt.plusSeconds(30);
+            org.assertj.core.api.Assertions.assertThat(outboxRepository.reschedule(
+                            message.eventId(),
+                            message.claimedBy(),
+                            retryAt,
+                            "broker unavailable"))
+                    .isTrue();
+            org.assertj.core.api.Assertions.assertThat(outboxRepository.claimAvailable(
+                            "relay-c", 10, retryAt.minusSeconds(1), Duration.ofMinutes(1)))
+                    .isEmpty();
+
+            OutboxMessage retried = outboxRepository.claimAvailable(
+                            "relay-c", 10, retryAt, Duration.ofMinutes(1))
+                    .get(0);
+            org.assertj.core.api.Assertions.assertThat(retried.attemptCount()).isEqualTo(2);
+            org.assertj.core.api.Assertions.assertThat(outboxRepository.markPublished(
+                            retried.eventId(), retried.claimedBy(), retryAt.plusSeconds(1)))
+                    .isTrue();
+            org.assertj.core.api.Assertions.assertThat(outboxRepository.claimAvailable(
+                            "relay-d", 10, retryAt.plusSeconds(2), Duration.ofMinutes(1)))
+                    .isEmpty();
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
