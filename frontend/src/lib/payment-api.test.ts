@@ -4,6 +4,7 @@ import {
   configureProvider,
   createPayment,
   getPayment,
+  getOperationsOverview,
   getProviderStatus,
 } from './payment-api'
 
@@ -138,5 +139,21 @@ describe('payment API client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: 'UNAVAILABLE' }),
     })
+  })
+
+  it('reads the durable operations overview', async () => {
+    const overview = {
+      health: 'HEALTHY',
+      generatedAt: '2026-09-10T02:00:00Z',
+      payments: { total: 12, received: 2, authorized: 9, declined: 1 },
+      outbox: { unpublished: 1, processing: 0, failed: 0 },
+      provider: { circuitState: 'CLOSED' },
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(overview), { status: 200 }),
+    )
+
+    await expect(getOperationsOverview()).resolves.toEqual(overview)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/operations/overview')
   })
 })

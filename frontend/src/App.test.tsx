@@ -123,4 +123,28 @@ describe('Payment Reliability Console', () => {
       body: JSON.stringify({ mode: 'TRANSIENT_THEN_SUCCESS' }),
     })
   })
+
+  it('shows an operations overview that answers recovery questions', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          health: 'ATTENTION',
+          generatedAt: '2026-09-10T02:00:00Z',
+          payments: { total: 12, received: 2, authorized: 9, declined: 1 },
+          outbox: { unpublished: 3, processing: 1, failed: 1 },
+          provider: { circuitState: 'OPEN' },
+        }),
+        { status: 200 },
+      ),
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /refresh operations/i }))
+
+    expect(await screen.findByText(/needs attention/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 awaiting authorization/i)).toBeInTheDocument()
+    expect(screen.getByText(/provider circuit/i)).toBeInTheDocument()
+    expect(screen.getByText('OPEN')).toBeInTheDocument()
+  })
 })

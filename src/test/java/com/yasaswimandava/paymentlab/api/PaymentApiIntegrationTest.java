@@ -105,6 +105,35 @@ class PaymentApiIntegrationTest {
     }
 
     @Test
+    void propagatesOrGeneratesACorrelationId() throws Exception {
+        mockMvc.perform(get(PAYMENTS_URL + "/81e13cdc-cceb-47d4-8871-c49cd69aa344")
+                        .header("X-Correlation-ID", "application-checkout-42"))
+                .andExpect(header().string("X-Correlation-ID", "application-checkout-42"));
+
+        mockMvc.perform(get(PAYMENTS_URL + "/81e13cdc-cceb-47d4-8871-c49cd69aa344"))
+                .andExpect(header().exists("X-Correlation-ID"));
+    }
+
+    @Test
+    void exposesAnOperatorOverviewFromDurableState() throws Exception {
+        long payments = jdbcTemplate.queryForObject(
+                "select count(*) from payments", Long.class);
+        long received = jdbcTemplate.queryForObject(
+                "select count(*) from payments where status = 'RECEIVED'", Long.class);
+        long unpublished = jdbcTemplate.queryForObject(
+                "select count(*) from outbox_events where status <> 'PUBLISHED'", Long.class);
+
+        mockMvc.perform(get("/api/v1/operations/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.health").value("HEALTHY"))
+                .andExpect(jsonPath("$.generatedAt").exists())
+                .andExpect(jsonPath("$.payments.total").value(payments))
+                .andExpect(jsonPath("$.payments.received").value(received))
+                .andExpect(jsonPath("$.outbox.unpublished").value(unpublished))
+                .andExpect(jsonPath("$.provider.circuitState").value("CLOSED"));
+    }
+
+    @Test
     void returnsConflictWhenTheKeyIsReusedForDifferentDetails() throws Exception {
         String conflictKey = "order-api-conflict";
         mockMvc.perform(post(PAYMENTS_URL)
